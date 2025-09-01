@@ -124,7 +124,7 @@ choco install miniconda3
 
 ```bash
 # Navigate to the project directory
-cd nova_sonic_poc/nova-s2s-workshop-webrtc
+cd sample-nova-sonic-speech2speech-webrtc/
 
 # Make scripts executable (Linux/macOS)
 chmod +x *.sh
@@ -258,9 +258,14 @@ conda activate nova-s2s-webrtc
 python3 -m venv .venv
 source .venv/bin/activate  # Linux/macOS
 # .venv\Scripts\activate   # Windows
-
 # Install dependencies
 pip install -r requirements.txt
+
+# Configure AWS credentials and Kinesis Video Streams signaling channel name
+export AWS_ACCESS_KEY_ID=your_access_key_here
+export AWS_SECRET_ACCESS_KEY=your_secret
+export AWS_REGION=ap-northeast-1
+export KVS_CHANNEL_NAME=nova-s2s-webrtc-test
 
 # Start server
 python webrtc_server.py
@@ -352,7 +357,7 @@ bash start-python-server.sh
 # Basic usage
 ./start-python-server.sh
 
-# Custom configuration
+# Custom AWS region and signaling channel configuration
 ./start-python-server.sh \
   --region us-west-2 \
   --channel my-test-channel
@@ -581,7 +586,6 @@ watch -n 1 'ps aux | grep python | grep webrtc'
 1. **Check Logs**: 
    - Python: `logs/webrtc_server.log`
    - Browser: Developer Tools Console
-   - Test Files: `logs/media_test/test_audio_*.wav` and `logs/media_test/test_video_*.mp4` (created during WebRTC test)
 2. **Test WebRTC**: Use "Test WebRTC Configuration" in React app Settings
    - Verify test files are created in `logs/media_test/` folder
    - Listen to captured audio and check video quality
