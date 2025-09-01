@@ -11,6 +11,8 @@ import sys
 import argparse
 from datetime import datetime
 from webrtc_s2s_integration import WebRTCS2SIntegration
+from integration.mcp_client import McpLocationClient
+from integration.strands_agent import StrandsAgent
 
 # Configure logging with file export
 LOGLEVEL = os.environ.get("LOGLEVEL", "INFO").upper()
@@ -97,6 +99,10 @@ except Exception as e:
     logger.error(f"❌ [WebRTCServer] File logging test failed: {e}")
     print(f"CRITICAL: Cannot write to log file {LOG_FILE}: {e}")
 
+# global variable to control each agent
+MCP_CLIENT = None
+STRANDS_AGENT = None
+
 async def main():
     """Main entry point for WebRTC server"""
     parser = argparse.ArgumentParser(description='Nova S2S WebRTC Server')
@@ -106,6 +112,7 @@ async def main():
                        help='KVS channel name (default: nova-s2s-webrtc-test)')
     parser.add_argument('--model-id', default='amazon.nova-sonic-v1:0',
                        help='Bedrock model ID (default: amazon.nova-sonic-v1:0)')
+    parser.add_argument('--agent', type=str, help='Agent intergation "mcp" or "strands".') # argument to choose agent, value = "mcp" | "strands"
     
     args = parser.parse_args()
     
@@ -115,10 +122,33 @@ async def main():
     logger.debug(f"Model: {args.model_id}")
     
     try:
+        # Init MCP client
+        if args.agent == "mcp":
+            print("MCP enabled")
+            try:
+                global MCP_CLIENT
+                MCP_CLIENT = McpLocationClient()
+                await MCP_CLIENT.connect_to_server()
+            except Exception as ex:
+                print("Failed to start MCP client",ex)
+        # Init Strands Agent
+        elif args.agent == "strands":
+            print("Strands agent enabled")
+            try:
+                global STRANDS_AGENT
+                STRANDS_AGENT = StrandsAgent()
+            except Exception as ex:
+                print("Failed to start Strands agent",ex)
+        else:
+            MCP_CLIENT = STRANDS_AGENT = None
+
+
         # Initialize WebRTC S2S integration
         integration = WebRTCS2SIntegration(
             region=args.region,
-            model_id=args.model_id
+            model_id=args.model_id,
+            mcp_client=MCP_CLIENT,
+            strands_agent=STRANDS_AGENT
         )
         
         logger.info("🤖 [WebRTCServer] S2S MODE - Audio will be processed by Nova Sonic")
@@ -145,6 +175,8 @@ async def main():
         try:
             await integration.stop()
             logger.info("WebRTC server stopped")
+            if MCP_CLIENT:
+                MCP_CLIENT.cleanup()
         except Exception as e:
             logger.error(f"Error during cleanup: {e}")
 
