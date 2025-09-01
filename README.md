@@ -229,6 +229,7 @@ REACT_APP_KVS_CHANNEL_NAME=nova-s2s-webrtc-test
 ./start-python-server.sh
 
 # Available options:
+# ./start-python-ser
 # ./start-python-server.sh --region us-west-2
 # ./start-python-server.sh --skip-deps  # Skip dependency installation
 ```
@@ -261,6 +262,9 @@ source .venv/bin/activate  # Linux/macOS
 # Install dependencies
 pip install -r requirements.txt
 
+# If your have successful run start-python-server.sh, there is Conda environment "nova-s2s-webrtc". 
+# So you can start the Python server manually as below.
+conda activate nova-s2s-webrtc
 # Configure AWS credentials and Kinesis Video Streams signaling channel name
 export AWS_ACCESS_KEY_ID=your_access_key_here
 export AWS_SECRET_ACCESS_KEY=your_secret
@@ -269,6 +273,8 @@ export KVS_CHANNEL_NAME=nova-s2s-webrtc-test
 
 # Start server
 python webrtc_server.py
+# Available options:
+python webrtc_server.py --agent mcp
 ```
 
 **React Frontend:**
