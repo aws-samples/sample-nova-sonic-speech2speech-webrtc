@@ -54,7 +54,7 @@ A comprehensive Speech-to-Speech (S2S) WebRTC solution integrating Amazon Kinesi
 ## 🏗️ Project Structure
 
 ```
-nova-s2s-workshop-webrtc/
+sample-nova-sonic-speech2speech-webrtc/
 ├── README.md                    # This file
 ├── start-python-server.sh      # Python server launcher script
 ├── start-react-client.sh       # React client launcher script
