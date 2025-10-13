@@ -157,9 +157,16 @@ class S2sChatBot extends React.Component {
             errors.push('AWS Region format is invalid (e.g., ap-northeast-1)');
         }
         
-        // Validate access key format
-        if (this.state.configAccessKeyId && !/^AKIA[0-9A-Z]{16}$/.test(this.state.configAccessKeyId.trim())) {
-            errors.push('AWS Access Key ID format is invalid (should start with AKIA)');
+        // Validate access key format (support both permanent AKIA and temporary ASIA keys)
+        if (this.state.configAccessKeyId && !/^A(KIA|SIA)[0-9A-Z]{16}$/.test(this.state.configAccessKeyId.trim())) {
+            errors.push('AWS Access Key ID format is invalid (should start with AKIA or ASIA)');
+        }
+        
+        // Validate session token for temporary credentials
+        if (this.state.configAccessKeyId && this.state.configAccessKeyId.trim().startsWith('ASIA')) {
+            if (!this.state.configSessionToken || this.state.configSessionToken.trim() === '') {
+                errors.push('AWS Session Token is required when using temporary credentials (ASIA keys)');
+            }
         }
         
         return errors;
