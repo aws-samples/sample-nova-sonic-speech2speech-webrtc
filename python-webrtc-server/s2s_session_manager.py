@@ -11,7 +11,7 @@ from datetime import datetime
 from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
 from aws_sdk_bedrock_runtime.models import InvokeModelWithBidirectionalStreamInputChunk, BidirectionalInputPayloadPart
 from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver, SigV4AuthScheme
-from smithy_aws_core.credentials_resolvers.environment import EnvironmentCredentialsResolver
+from smithy_aws_core.identity.environment import EnvironmentCredentialsResolver
 from integration import inline_agent, bedrock_knowledge_bases as kb
 
 # Suppress warnings
@@ -34,7 +34,7 @@ def debug_print(message):
 class S2sSessionManager:
     """Manages bidirectional streaming with AWS Bedrock using asyncio"""
     
-    def __init__(self, region, model_id='amazon.nova-sonic-v1:0', mcp_client=None, strands_agent=None):
+    def __init__(self, region, model_id='amazon.nova-sonic-v1:0', mcp_client=None, mcp_iot_client=None, strands_agent=None):
         """Initialize the stream manager."""
         self.model_id = model_id
         self.region = region
@@ -56,6 +56,7 @@ class S2sSessionManager:
         self.toolUseId = ""
         self.toolName = ""
         self.mcp_loc_client = mcp_client
+        self.mcp_iot_client = mcp_iot_client
         self.strands_agent = strands_agent
         
         # Session readiness tracking
@@ -64,6 +65,10 @@ class S2sSessionManager:
         
         # Audio data saving control (disabled by default, enable with AUDIO_DEBUG_SAVE=true)
         self.audio_debug_save_enabled = os.getenv('AUDIO_DEBUG_SAVE', 'false').lower() == 'true'
+        
+        # Voice quality control configuration
+        self.rms_threshold = float(os.getenv('AUDIO_RMS_THRESHOLD', '10'))  # Default RMS threshold of 10
+        logger.debug(f"[S2sSessionManager] Voice quality control - RMS threshold: {self.rms_threshold} (set AUDIO_RMS_THRESHOLD to change)")
         
         # Always initialize audio chunk counter for logging purposes
         self.audio_chunk_counter = 0
@@ -166,9 +171,7 @@ class S2sSessionManager:
         config = Config(
             endpoint_uri=f"https://bedrock-runtime.{self.region}.amazonaws.com",
             region=self.region,
-            aws_credentials_identity_resolver=EnvironmentCredentialsResolver(),
-            http_auth_scheme_resolver=HTTPAuthSchemeResolver(),
-            http_auth_schemes={"aws.auth#sigv4": SigV4AuthScheme()}
+            aws_credentials_identity_resolver=EnvironmentCredentialsResolver()
         )
         self.bedrock_client = BedrockRuntimeClient(config=config)
 
@@ -321,10 +324,14 @@ class S2sSessionManager:
                     if self.audio_chunk_counter % 10 == 0:  # Every 10 chunks instead of every chunk
                         logger.debug(f"🎵➡️ [AUDIO] Chunk #{self.audio_chunk_counter}: {len(audio_samples)} samples, RMS={rms:.0f}, Clipping={clipping_percent:.1f}%")
                     
-                    # Warn about audio quality issues (keep these as they're important)
-                    if rms < 100:
-                        logger.warning(f"⚠️ [AUDIO] Low volume detected (RMS={rms:.0f}) - may affect speech recognition")
-                    elif clipping_percent > 10:
+                    # Voice quality control - filter out low-volume audio
+                    if rms < self.rms_threshold:  # Configurable RMS threshold for filtering
+                        logger.debug(f"🔇 [AUDIO] Audio below RMS threshold ({rms:.0f} < {self.rms_threshold}) - skipping transmission to Nova Sonic")
+                        continue  # Skip sending this audio chunk to Nova Sonic
+                    else:
+                        logger.info(f"🔇 [AUDIO] Audio above RMS threshold ({rms:.0f} > {self.rms_threshold}) - sending audio chunk to Nova Sonic")
+                        
+                    if clipping_percent > 10:
                         logger.error(f"🔥 [AUDIO] SEVERE CLIPPING detected ({clipping_percent:.1f}%) - audio will be distorted!")
                     elif clipping_percent > 1:
                         logger.warning(f"⚠️ [AUDIO] Clipping detected ({clipping_percent:.1f}%) - reducing microphone gain recommended")
@@ -332,7 +339,7 @@ class S2sSessionManager:
                 except Exception as e:
                     logger.debug(f"🎵➡️ [AUDIO] Chunk #{self.audio_chunk_counter}: analysis failed - {e}")
                 
-                # Send the event
+                # Send the event (only if it passed quality control)
                 await self.send_raw_event(audio_event)
                 
             except asyncio.CancelledError:
@@ -532,6 +539,24 @@ class S2sSessionManager:
             if toolName == "getlocationtool":
                 if self.mcp_loc_client:
                     result = await self.mcp_loc_client.call_tool(content)
+            
+            # MCP integration - IoT Core MQTT publishing
+            if toolName == "publish_mqtt":
+                logger.info(f"🔧 [NOVA] Processing publish_mqtt tool")
+                logger.debug(f"🔧 [NOVA] MCP IoT client available: {self.mcp_iot_client is not None}")
+                logger.debug(f"🔧 [NOVA] Tool content: {content}")
+                
+                if self.mcp_iot_client:
+                    try:
+                        logger.info(f"🔧 [NOVA] Calling MCP IoT client...")
+                        result = await self.mcp_iot_client.call_tool(content)
+                        logger.info(f"🔧 [NOVA] MCP IoT client result: {result}")
+                    except Exception as e:
+                        logger.error(f"❌ [NOVA] MCP IoT client error: {e}")
+                        result = f"Error publishing MQTT message: {str(e)}"
+                else:
+                    logger.error(f"❌ [NOVA] MCP IoT client not available")
+                    result = "IoT Core MCP client not initialized"
             
             # Strands Agent integration - weather questions
             if toolName == "externalagent":

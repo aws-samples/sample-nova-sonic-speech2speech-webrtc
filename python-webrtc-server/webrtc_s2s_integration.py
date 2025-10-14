@@ -21,20 +21,22 @@ class WebRTCS2SIntegration:
     """
     
     def __init__(self, region: str, model_id: str = 'amazon.nova-sonic-v1:0', 
-                 mcp_client=None, strands_agent=None, loopback_mode: bool = False):
+                 mcp_client=None, mcp_iot_client=None, strands_agent=None, loopback_mode: bool = False):
         """
         Initialize WebRTC S2S integration
         
         Args:
             region: AWS region
             model_id: Bedrock model ID
-            mcp_client: MCP client for tool integration
+            mcp_client: MCP client for location tool integration
+            mcp_iot_client: MCP client for IoT Core tool integration
             strands_agent: Strands agent for external queries
             loopback_mode: If True, enables audio loopback testing (bypasses S2S)
         """
         self.region = region
         self.model_id = model_id
         self.mcp_client = mcp_client
+        self.mcp_iot_client = mcp_iot_client
         self.strands_agent = strands_agent
         self.loopback_mode = loopback_mode
         
@@ -185,6 +187,7 @@ class WebRTCS2SIntegration:
                 region=self.region,
                 model_id=self.model_id,
                 mcp_client=self.mcp_client,
+                mcp_iot_client=self.mcp_iot_client,
                 strands_agent=self.strands_agent
             )
             
@@ -278,7 +281,7 @@ class WebRTCS2SIntegration:
             logger.error(f"[WebRTCS2SIntegration] Error cleaning up session for {client_id}: {e}")
             
     async def _start_s2s_session(self, client_id: str, session_manager: S2sSessionManager):
-        """
+        """(deprecated)
         Start S2S session with initial events
         
         Args:

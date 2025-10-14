@@ -175,7 +175,7 @@ class AudioOutputTrack(MediaStreamTrack):
                 self.stats['buffer_underruns'] += 1
                 
                 if self.stats['buffer_underruns'] % 50 == 1:  # Log every 50 underruns
-                    logger.warning(f"⚠️ [AudioOutputTrack] Buffer underrun #{self.stats['buffer_underruns']} for {self.client_id} - playing silence")
+                    logger.debug(f"⚠️ [AudioOutputTrack] Buffer underrun #{self.stats['buffer_underruns']} for {self.client_id} - playing silence")
                 
                 return None
     

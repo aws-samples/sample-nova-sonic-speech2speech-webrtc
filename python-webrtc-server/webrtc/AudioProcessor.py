@@ -59,6 +59,9 @@ class AudioProcessor:
         # Session-level audio configuration cache to reduce logging
         self.session_audio_config: Dict[str, dict] = {}
         
+        # Track what we've already logged per client to reduce repetitive messages
+        self.logged_info: Dict[str, set] = {}  # client_id -> set of logged message types
+        
         # Audio file saving control (disabled by default, enable with AUDIO_DEBUG_SAVE=true)
         self.audio_debug_save_enabled = os.getenv('AUDIO_DEBUG_SAVE', 'false').lower() == 'true'
         
@@ -190,7 +193,7 @@ class AudioProcessor:
                 logger.debug(f"[AudioProcessor] Not processing, ignoring track for {client_id}")
                 return
                 
-            logger.debug(f"[AudioProcessor] Adding audio track for client: {client_id}")
+            logger.info(f"🎵 [AudioProcessor] Starting audio processing for {client_id}")
             
             # Store track reference
             self.audio_tracks[client_id] = track
@@ -198,6 +201,10 @@ class AudioProcessor:
             # Initialize audio buffer for this client
             with self.buffer_lock:
                 self.audio_buffers[client_id] = deque(maxlen=1000)  # Limit buffer size
+            
+            # Initialize logged info for this client
+            if client_id not in self.logged_info:
+                self.logged_info[client_id] = set()
                 
             # Start processing task for this track
             task = asyncio.create_task(self._process_audio_track(client_id, track))
@@ -249,6 +256,11 @@ class AudioProcessor:
             if client_id in self.session_managers:
                 del self.session_managers[client_id]
                 logger.debug(f"[AudioProcessor] Cleared session manager reference for {client_id}")
+            
+            # Clear logged info to allow fresh logging for new connections
+            if client_id in self.logged_info:
+                del self.logged_info[client_id]
+                logger.debug(f"[AudioProcessor] Cleared logged info for {client_id}")
             
             # Force merge any remaining buffered audio when client disconnects (only if debug saving enabled)
             if self.audio_debug_save_enabled:
@@ -319,7 +331,12 @@ class AudioProcessor:
                     if actual_samples != expected_samples:
                         logger.warning(f"🔍 [AudioProcessor] SAMPLE MISMATCH for {client_id}: Expected {expected_samples}, Got {actual_samples} samples")
                     else:
-                        logger.debug(f"✅ [AudioProcessor] Sample count correct for {client_id}: {actual_samples} samples")
+                        # Only log sample count on first few frames to avoid spam
+                        if client_id not in self.logged_info:
+                            self.logged_info[client_id] = set()
+                        if 'sample_count' not in self.logged_info[client_id]:
+                            logger.debug(f"✅ [AudioProcessor] Sample count correct for {client_id}: {actual_samples} samples")
+                            self.logged_info[client_id].add('sample_count')
                     
                     # SAVE ORIGINAL RAW AUDIO for VLC analysis (only if debug saving enabled)
                     if self.audio_debug_save_enabled:
@@ -540,10 +557,23 @@ class AudioProcessor:
             input_max = np.max(np.abs(audio_data))
             input_clipping = np.sum(np.abs(audio_data) >= 0.99) / len(audio_data) * 100
             
-            if is_test_client:
-                logger.debug(f"🧪 [AudioProcessor] TEST MODE - Processing audio for {client_id}: RMS={input_rms:.3f}, Max={input_max:.3f}, Clipping={input_clipping:.1f}%")
-            else:
-                logger.debug(f"🔍 [AudioProcessor] INPUT AUDIO for {client_id}: RMS={input_rms:.3f}, Max={input_max:.3f}, Clipping={input_clipping:.1f}%")
+            # Only log audio analysis occasionally to avoid spam
+            if client_id not in self.logged_info:
+                self.logged_info[client_id] = set()
+            
+            # Log audio analysis only for first few frames or when there are issues
+            should_log_audio = (
+                'audio_analysis' not in self.logged_info[client_id] or
+                input_clipping > 5.0 or  # Log if significant clipping
+                input_rms < 0.001  # Log if very quiet (potential issue)
+            )
+            
+            if should_log_audio:
+                if is_test_client:
+                    logger.debug(f"🧪 [AudioProcessor] TEST MODE - Processing audio for {client_id}: RMS={input_rms:.3f}, Max={input_max:.3f}, Clipping={input_clipping:.1f}%")
+                else:
+                    logger.debug(f"🔍 [AudioProcessor] INPUT AUDIO for {client_id}: RMS={input_rms:.3f}, Max={input_max:.3f}, Clipping={input_clipping:.1f}%")
+                self.logged_info[client_id].add('audio_analysis')
                 
             # Resample to Nova Sonic's required 16kHz if needed
             if original_sample_rate != self.target_sample_rate:
@@ -558,13 +588,15 @@ class AudioProcessor:
                 original_length = len(audio_data)
                 simple_target_length = int(original_length * resample_ratio)
                 
-                logger.debug(f"🔍 [AudioProcessor] PRECISION RESAMPLING SETUP for {client_id}:")
-                logger.debug(f"   Original sample rate: {original_sample_rate}Hz")
-                logger.debug(f"   Target sample rate: {self.target_sample_rate}Hz")
-                logger.debug(f"   Input duration: {input_duration:.6f}s")
-                logger.debug(f"   Input length: {original_length} samples")
-                logger.debug(f"   Simple target length: {simple_target_length} samples")
-                logger.debug(f"   Precise target length: {precise_target_length} samples")
+                # Only log resampling setup once per client to avoid spam
+                resampling_key = f"resampling_{original_sample_rate}_{self.target_sample_rate}"
+                if resampling_key not in self.logged_info[client_id]:
+                    logger.info(f"🔍 [AudioProcessor] RESAMPLING SETUP for {client_id}: {original_sample_rate}Hz → {self.target_sample_rate}Hz")
+                    self.logged_info[client_id].add(resampling_key)
+                # Only log detailed resampling info once per client
+                if resampling_key not in self.logged_info[client_id]:
+                    logger.debug(f"   Input duration: {input_duration:.6f}s, length: {original_length} samples")
+                    logger.debug(f"   Target length: {precise_target_length} samples")
                 
                 # Use the precise target length
                 target_length = precise_target_length
@@ -573,10 +605,9 @@ class AudioProcessor:
                     # MEDIARECORDER-INSPIRED PRECISION RESAMPLING
                     # MediaRecorder.py works by preserving exact timing - we apply the same principle
                     
-                    logger.debug(f"🔄 [AudioProcessor] PRECISION RESAMPLING for {client_id}:")
-                    logger.debug(f"   Method: scipy.signal.resample with precise timing")
-                    logger.debug(f"   Input: {original_length} samples at {original_sample_rate}Hz")
-                    logger.debug(f"   Target: {target_length} samples at {self.target_sample_rate}Hz")
+                    # Only log resampling method once per client
+                    if resampling_key not in self.logged_info[client_id]:
+                        logger.debug(f"🔄 [AudioProcessor] Using scipy.signal.resample for precision resampling")
                     
                     try:
                         # Use scipy.signal.resample with precise target length
@@ -589,11 +620,9 @@ class AudioProcessor:
                         if len(resampled_data) == target_length and duration_error < 0.1:
                             audio_data = resampled_data
                             
-                            logger.debug(f"✅ [AudioProcessor] PRECISION RESAMPLING SUCCESS for {client_id}:")
-                            logger.debug(f"   Output: {len(audio_data)} samples")
-                            logger.debug(f"   Input duration: {input_duration:.6f}s")
-                            logger.debug(f"   Output duration: {output_duration:.6f}s")
-                            logger.debug(f"   Duration error: {duration_error:.3f}%")
+                            # Only log success details once per client
+                            if resampling_key not in self.logged_info[client_id]:
+                                logger.debug(f"✅ [AudioProcessor] Resampling successful - Duration error: {duration_error:.3f}%")
                         else:
                             logger.warning(f"⚠️ [AudioProcessor] Precision resampling quality check failed")
                             logger.warning(f"   Expected length: {target_length}, got: {len(resampled_data)}")
@@ -653,21 +682,31 @@ class AudioProcessor:
             
             logger.debug(f"🔧 [AudioProcessor] Applied server-side gain reduction: {server_gain_reduction}x")
             
-            # Debug: Check audio levels AFTER gain reduction
+            # Debug: Check audio levels AFTER gain reduction (only log occasionally)
             output_rms = np.sqrt(np.mean(audio_data.astype(np.float32) ** 2))
             output_max = np.max(np.abs(audio_data))
             output_clipping = np.sum(np.abs(audio_data) >= 0.99) / len(audio_data) * 100
-            logger.debug(f"🔍 [AudioProcessor] AFTER GAIN for {client_id}: RMS={output_rms:.3f}, Max={output_max:.3f}, Clipping={output_clipping:.1f}%")
             
             # Clamp values to [-1, 1] range and convert to 16-bit integers
             audio_data = np.clip(audio_data, -1.0, 1.0)
             int16_data = (audio_data * 32767).astype(np.int16)
             
-            # Debug: Check final 16-bit levels
+            # Debug: Check final 16-bit levels (only log occasionally or when there are issues)
             final_rms = np.sqrt(np.mean(int16_data.astype(np.float32) ** 2))
             final_max = np.max(np.abs(int16_data))
             final_clipping = np.sum(np.abs(int16_data) >= 32767) / len(int16_data) * 100
-            logger.debug(f"🔍 [AudioProcessor] FINAL 16-BIT for {client_id}: RMS={final_rms:.0f}, Max={final_max:.0f}, Clipping={final_clipping:.1f}%")
+            
+            # Only log gain/final analysis when there are issues or for first few frames
+            should_log_gain = (
+                'gain_analysis' not in self.logged_info[client_id] or
+                output_clipping > 5.0 or final_clipping > 5.0 or
+                output_rms < 0.001 or final_rms < 100
+            )
+            
+            if should_log_gain:
+                logger.debug(f"🔍 [AudioProcessor] AFTER GAIN for {client_id}: RMS={output_rms:.3f}, Max={output_max:.3f}, Clipping={output_clipping:.1f}%")
+                logger.debug(f"🔍 [AudioProcessor] FINAL 16-BIT for {client_id}: RMS={final_rms:.0f}, Max={final_max:.0f}, Clipping={final_clipping:.1f}%")
+                self.logged_info[client_id].add('gain_analysis')
             
             # Add processed audio to buffer for merging (after resampling, before converting to bytes)
             # CRITICAL: Verify that audio_data has been resampled to target_sample_rate
@@ -729,7 +768,12 @@ class AudioProcessor:
         """
         try:
             if self.on_audio_data:
-                logger.debug(f"📤 [AudioProcessor] Sending processed audio to KVSWebRTCMaster for {client_id}: {audio_packet['size_bytes']} bytes, {audio_packet['sampleRate']}Hz")
+                # Only log audio sending occasionally to avoid spam
+                if 'audio_sending' not in self.logged_info.get(client_id, set()):
+                    logger.debug(f"📤 [AudioProcessor] Sending processed audio to callback for {client_id}: {audio_packet['size_bytes']} bytes, {audio_packet['sampleRate']}Hz")
+                    if client_id not in self.logged_info:
+                        self.logged_info[client_id] = set()
+                    self.logged_info[client_id].add('audio_sending')
                 
                 # Check if callback is async
                 if asyncio.iscoroutinefunction(self.on_audio_data):

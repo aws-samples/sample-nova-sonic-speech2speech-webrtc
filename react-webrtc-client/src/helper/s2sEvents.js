@@ -5,7 +5,7 @@ class S2sEvent {
       temperature: 0.7
     };
   
-    static DEFAULT_SYSTEM_PROMPT = "You are a friend. The user and you will engage in a spoken dialog exchanging the transcripts of a natural real-time conversation. Keep your responses short, generally two or three sentences for chatty scenarios.";
+    static DEFAULT_SYSTEM_PROMPT = "You are a helpful AI assistant. The user and you will engage in a spoken dialog exchanging the transcripts of a natural real-time conversation. Keep your responses short, generally two or three sentences for chatty scenarios. You have access to various tools including location services, weather information, booking management, knowledge bases, and IoT device control via MQTT publishing to AWS IoT Core. When users ask about controlling smart home devices, sending sensor data, or publishing to MQTT topics, use getKbTool_Camera tool to find out the appropriate MQTT topic & payload, then use the publish_mqtt tool publish control message to IoT Core.";
   
     static DEFAULT_AUDIO_INPUT_CONFIG = {
       mediaType: "audio/lpcm",
@@ -63,14 +63,15 @@ class S2sEvent {
       {
         toolSpec: {
           name: "getKbTool_Camera",
-          description: "get information about HiK Vision network cameras, including product specifications, features, compatibility, and other infomation from the user manual.",
+          description: "get MQTT topics and payload formats for controlling smart home devices, like light & smart lock in living room, light and oven in kitchen, and light in bedroom. Or get information about network camera manuals",
           inputSchema: {
             json: JSON.stringify({
                 "type": "object",
                 "properties": {
                   "query": {
                     "type": "string",
-                    "description": "The question about HikVision network cameras"
+                    //"description": "The question about HikVision network cameras"
+                    "description": "The question about MQTT topic definition for lights & lock & oven in living room, kitchen, or bedroom. Or the question about HikVision network cameras."
                   }},
                 "required": []
               }
@@ -133,6 +134,67 @@ class S2sEvent {
                     "description": "The request about booking, reservation"
                   }},
                 "required": []
+              }
+            )
+          }
+        }
+      },
+      {
+        toolSpec: {
+          name: "publish_mqtt",
+          description: "Publish MQTT message to Amazon IoT Core for device communication, sensor data, or IoT device control.",
+          inputSchema: {
+            json: JSON.stringify({
+                "type": "object",
+                "properties": {
+                  "topic": {
+                    "type": "string",
+                    "description": "MQTT topic to publish to (e.g., 'device/sensor/temperature', 'home/lights/control')"
+                  },
+                  "payload": {
+                    "type": "string",
+                    "description": "Message payload (JSON string or plain text)"
+                  },
+                  "endpoint": {
+                    "type": "string",
+                    "description": "IoT Core endpoint URL (optional, uses IOT_ENDPOINT env var if not provided)"
+                  },
+                  "cert_path": {
+                    "type": "string",
+                    "description": "Path to device certificate file (optional)"
+                  },
+                  "key_path": {
+                    "type": "string",
+                    "description": "Path to private key file (optional)"
+                  },
+                  "username": {
+                    "type": "string",
+                    "description": "MQTT username for custom authorizer (optional)"
+                  },
+                  "password": {
+                    "type": "string",
+                    "description": "MQTT password for custom authorizer (optional)"
+                  },
+                  "custom_authorizer": {
+                    "type": "string",
+                    "description": "Custom authorizer name (optional)"
+                  },
+                  "client_id": {
+                    "type": "string",
+                    "description": "MQTT client ID (optional, auto-generated if not provided)"
+                  },
+                  "qos": {
+                    "type": "integer",
+                    "description": "Quality of Service level (0, 1, or 2)",
+                    "default": 1
+                  },
+                  "retain": {
+                    "type": "boolean",
+                    "description": "Retain message flag",
+                    "default": false
+                  }
+                },
+                "required": ["topic", "payload"]
               }
             )
           }

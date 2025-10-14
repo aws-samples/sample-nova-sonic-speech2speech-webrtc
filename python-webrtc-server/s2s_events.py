@@ -7,12 +7,15 @@ class S2sEvent:
         "topP": 0.95,
         "temperature": 0.7
     }
-  #DEFAULT_SYSTEM_PROMPT = "You are a friend. The user and you will engage in a spoken dialog " \
-  #            "exchanging the transcripts of a natural real-time conversation. Keep your responses short, " \
-  #            "generally two or three sentences for chatty scenarios."
-  DEFAULT_SYSTEM_PROMPT = "You are a friendly assistant. The user and you will engage in a spoken dialog " \
-    "exchanging the transcripts of a natural real-time conversation. Keep your responses short, " \
-    "generally two or three sentences for chatty scenarios."
+
+  # DEFAULT_SYSTEM_PROMPT = "You are a friendly assistant. The user and you will engage in a spoken dialog " \
+  #   "exchanging the transcripts of a natural real-time conversation. Keep your responses short, " \
+  #   "generally two or three sentences for chatty scenarios."
+  DEFAULT_SYSTEM_PROMPT = "You are a helpful AI assistant. The user and you will engage in a spoken dialog exchanging the transcripts of a natural real-time conversation." \
+    "Keep your responses short, generally two or three sentences for chatty scenarios." \
+    "You have access to various tools including location services, weather information, booking management, knowledge bases, and IoT device control via MQTT publishing to AWS IoT Core." \
+    "When users ask about controlling smart home devices, sending sensor data, or publishing to MQTT topics, use getKbTool_Camera tool to find out the appropriate MQTT topic & payload, then use the publish_mqtt tool publish control message to IoT Core.";
+    
 
   DEFAULT_AUDIO_INPUT_CONFIG = {
         "mediaType":"audio/lpcm",
@@ -46,21 +49,45 @@ class S2sEvent:
                       }
                   }
               },
+              # {
+              #     "toolSpec": {
+              #         "name": "locationMcpTool",
+              #         "description": "Access location services like finding places, getting place details, and geocoding. Use with tool names: search_places, get_place, search_nearby, reverse_geocode",
+              #         "inputSchema": {
+              #             "json": '''{
+              #               "$schema": "http://json-schema.org/draft-07/schema#",
+              #               "type": "object",
+              #               "properties": {
+              #                   "argName1": {
+              #                       "type": "string",
+              #                       "description": "JSON string containing 'tool' (one of: search_places, get_place, search_nearby, reverse_geocode) and 'params' (the parameters for the tool)"
+              #                   }
+              #               },
+              #               "required": ["argName1"]
+              #           }'''
+              #         }
+              #     }
+              # },
               {
                   "toolSpec": {
-                      "name": "locationMcpTool",
-                      "description": "Access location services like finding places, getting place details, and geocoding. Use with tool names: search_places, get_place, search_nearby, reverse_geocode",
+                      "name": "getLocationTool",
+                      "description": "Search for places, addresses, or nearby points of interest, and access detailed information about specific locations.",
                       "inputSchema": {
                           "json": '''{
                             "$schema": "http://json-schema.org/draft-07/schema#",
                             "type": "object",
                             "properties": {
-                                "argName1": {
+                                "tool": {
                                     "type": "string",
-                                    "description": "JSON string containing 'tool' (one of: search_places, get_place, search_nearby, reverse_geocode) and 'params' (the parameters for the tool)"
+                                    "description": "The function name to search the location service. One of: search_places, get_place, search_nearby, reverse_geocode",
+                                    "enum": ["search_places", "get_place", "search_nearby", "reverse_geocode"]
+                                },
+                                "query": {
+                                    "type": "string",
+                                    "description": "The search query to find relevant information"
                                 }
                             },
-                            "required": ["argName1"]
+                            "required": ["query"]
                         }'''
                       }
                   }
@@ -97,6 +124,86 @@ class S2sEvent:
                                 }
                             },
                             "required": ["operation"]
+                        }'''
+                      }
+                  }
+              },
+              {
+                  "toolSpec": {
+                      "name": "getKbTool_Camera",
+                      "description": "get MQTT topics and payload formats for controlling smart home devices, like light & smart lock in living room, light and oven in kitchen, and light in bedroom. Or get information about network camera manuals",
+                      "inputSchema": {
+                          "json": '''{
+                            "$schema": "http://json-schema.org/draft-07/schema#",
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "The question about MQTT topic definition for lights & lock & oven in living room, kitchen, or bedroom. And the question about HikVision network cameras."
+                                }
+                            },
+                            "required": ["query"]
+                        }'''
+                      }
+                  }
+              },
+              {
+                  "toolSpec": {
+                      "name": "publish_mqtt",
+                      "description": "Publish MQTT message to Amazon IoT Core for device communication, sensor data, or IoT device control.",
+                      "inputSchema": {
+                          "json": '''{
+                            "$schema": "http://json-schema.org/draft-07/schema#",
+                            "type": "object",
+                            "properties": {
+                                "topic": {
+                                    "type": "string",
+                                    "description": "MQTT topic to publish to (e.g., 'device/sensor/temperature', 'home/lights/control')"
+                                },
+                                "payload": {
+                                    "type": "string",
+                                    "description": "Message payload (JSON string or plain text)"
+                                },
+                                "endpoint": {
+                                    "type": "string",
+                                    "description": "IoT Core endpoint URL (optional, uses IOT_ENDPOINT env var if not provided)"
+                                },
+                                "cert_path": {
+                                    "type": "string",
+                                    "description": "Path to device certificate file (optional)"
+                                },
+                                "key_path": {
+                                    "type": "string",
+                                    "description": "Path to private key file (optional)"
+                                },
+                                "username": {
+                                    "type": "string",
+                                    "description": "MQTT username for custom authorizer (optional)"
+                                },
+                                "password": {
+                                    "type": "string",
+                                    "description": "MQTT password for custom authorizer (optional)"
+                                },
+                                "custom_authorizer": {
+                                    "type": "string",
+                                    "description": "Custom authorizer name (optional)"
+                                },
+                                "client_id": {
+                                    "type": "string",
+                                    "description": "MQTT client ID (optional, auto-generated if not provided)"
+                                },
+                                "qos": {
+                                    "type": "integer",
+                                    "description": "Quality of Service level (0, 1, or 2)",
+                                    "default": 1
+                                },
+                                "retain": {
+                                    "type": "boolean",
+                                    "description": "Retain message flag",
+                                    "default": false
+                                }
+                            },
+                            "required": ["topic", "payload"]
                         }'''
                       }
                   }
@@ -207,6 +314,7 @@ class S2sEvent:
           "contentName":content_name,
           "type":"AUDIO",
           "interactive":True,
+          "role":"USER",
           "audioInputConfiguration":audio_input_config
         }
       }
