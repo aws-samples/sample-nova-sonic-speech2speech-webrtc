@@ -297,9 +297,9 @@ npm start
 2. **Grant Permissions**: Allow microphone access when prompted
 4. **Test Connection**: Click "Start Session" and speak into your microphone
 
-### 6. Verification
+### 6. Verification (Optional)
 
-#### Test WebRTC Configuration (Recommended First Test)
+#### Test WebRTC Configuration
 
 The React app includes a built-in WebRTC testing feature that verifies your complete setup:
 
@@ -333,6 +333,55 @@ The React app includes a built-in WebRTC testing feature that verifies your comp
 **Note:** This test requires the Python server to be running and uses the full WebRTC pipeline including server-side processing.
 
 ## 🔧 Advanced Configuration
+
+### Run Python Server in Viewer Mode of KVS WebRTC
+
+The Python server supports both Master and Viewer modes for KVS WebRTC signaling channels. Viewer mode allows the server to join an existing WebRTC session as a participant rather than initiating it.
+
+#### Environment Setup
+```bash
+# Navigate to server directory and activate conda environment
+cd sample-nova-sonic-speech2speech-webrtc/python-webrtc-server
+conda activate nova-s2s-webrtc
+
+# Configure AWS credentials and region
+export AWS_ACCESS_KEY_ID=your_access_key_here
+export AWS_SECRET_ACCESS_KEY=your_secret_access_key_here
+export AWS_REGION=ap-northeast-1
+export KVS_CHANNEL_NAME=nova-s2s-webrtc-test
+
+# Optional: Knowledge Base integration
+export KB_ID="your_knowledge_base_id"
+export KB_REGION="ap-northeast-1"
+
+# Configure server logging level
+export LOGLEVEL="DEBUG"  # or "INFO" for production
+```
+
+#### Server Execution Modes
+
+**Master Mode (Default):**
+```bash
+# Basic master mode - initiates WebRTC signaling
+python webrtc_server.py
+python webrtc_server.py --webrtc-role Master
+
+# Master mode with MCP agent integration
+python webrtc_server.py --webrtc-role Master --agent mcp
+```
+
+**Viewer Mode:**
+```bash
+# Basic viewer mode - joins existing WebRTC session
+python webrtc_server.py --webrtc-role Viewer
+
+# Viewer mode with MCP agent integration
+python webrtc_server.py --webrtc-role Viewer --agent mcp
+```
+
+**Mode Differences:**
+- **Master Mode**: Initiates and manages the signaling channel, designed for integration with the React frontend application (as the Viewer)
+- **Viewer Mode**: Joins existing signaling channels as a participant, operates independently and supports integration with [KVS WebRTC test page](https://awslabs.github.io/amazon-kinesis-video-streams-webrtc-sdk-js/examples/index.html) and [KVS WebRTC SDK applications](https://docs.aws.amazon.com/kinesisvideostreams-webrtc-dg/latest/devguide/webrtc-sdks.html) as the Master.
 
 ### Cross-Platform Considerations
 
