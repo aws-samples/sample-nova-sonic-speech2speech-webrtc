@@ -532,7 +532,7 @@ class S2sSessionManager:
                 result = kb.retrieve_kb(content)
 
             # Bedrock Knowledge Bases (RAG)
-            if toolName == "getkbtool_camera":
+            if toolName == "getkbtool_smarthome":
                 result = kb.retrieve_kb(content)
 
             # MCP integration - location search                        

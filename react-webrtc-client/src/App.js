@@ -49,7 +49,7 @@ const App = ({ signOut, user }) => {
           <TopNavigation      
             identity={{
               href: "#",
-              title: "Amazon Nova S2S Sample Client App",
+              title: "WebRTC-based Amazon Nova Sonic S2S React App",
               onFollow: handleTopClick   
             }}
             i18nStrings={{
