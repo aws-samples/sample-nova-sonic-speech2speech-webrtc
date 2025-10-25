@@ -1,27 +1,41 @@
 # Nova S2S WebRTC Workshop
 
-A comprehensive Speech-to-Speech (S2S) WebRTC solution integrating AWS Bedrock Nova Sonic, Amazon Kinesis Video Streams with WebRTC, and real-time audio processing capabilities.
+A comprehensive Speech-to-Speech (S2S) WebRTC solution integrating AWS Bedrock Nova Sonic, Amazon Kinesis Video Streams with WebRTC, and real-time audio/video processing.
 
 The sample solution architecture:
 ![solution architecture](./docs/NovaSonic_WebRTC-architecture.png)
 
 ## 🚀 Features
 
-### Core Capabilities
+### Capabilities
 - **Real-time WebRTC Communication**: Low-latency audio streaming using Amazon KVS WebRTC
 - **AI-Powered Speech Processing**: Integration with AWS Bedrock Nova Sonic for advanced speech-to-speech capabilities
 - **Cross-Platform Support**: Works seamlessly on Windows, macOS, and Linux
 - **Production Ready**: Optimized for both development and production environments
 - **Modular Architecture**: Separate Python backend and React frontend for flexibility
-
-### Technical Features
-- **WebRTC Audio Processing**: High-quality audio capture, processing, and playback
-- **AWS Integration**: Seamless integration with AWS services (KVS, Bedrock, S3)
 - **Agent Integration**: Support for MCP (Model Context Protocol) and Strands agents
-- **Performance Monitoring**: Built-in performance tracking and optimization
-- **Configurable Logging**: Comprehensive logging with adjustable levels
 
 ## 📋 System Requirements
+
+### Tested Configuration
+
+This solution has been tested and verified with the following exact versions:
+
+**Core Dependencies:**
+- **Python**: 3.12.x
+- **numpy**: 1.26.4 (installed via conda as av dependency)
+- **av (PyAV)**: 11.0.0 (installed via conda for FFmpeg linking)
+- **aiortc**: 1.6.0 (installed via pip with dependency management)
+- **ffmpeg**: 6.1.2+ (installed via conda)
+
+**AWS SDK:**
+- **boto3**: ≥1.34.0
+- **aws-sdk-bedrock-runtime**: ≥0.0.1
+- **smithy-aws-core**: ≥0.1.0
+
+**Agent Integration:**
+- **mcp**: ≥1.0.0
+- **strands-agents**: ≥0.1.0
 
 ### Hardware Requirements
 - **CPU**: Multi-core processor (Intel i5/AMD Ryzen 5 or better recommended)
@@ -38,9 +52,9 @@ The sample solution architecture:
 - **Linux**: Ubuntu 18.04+, CentOS 7+, or equivalent distributions
 
 #### Python Backend
-- **Python**: 3.8 or higher (3.9+ recommended)
-- **Conda**: Miniconda or Anaconda (recommended for cross-platform compatibility)
-- **Alternative**: Python venv with manual system dependencies
+- **Python**: 3.12 (required for AWS Bedrock runtime)
+- **Conda**: Miniconda or Anaconda (required for proper FFmpeg/PyAV linking)
+- **System Dependencies**: ffmpeg, pkg-config (automatically handled by conda)
 
 #### React Frontend
 - **Node.js**: 16.0 or higher (18.x LTS recommended)
@@ -59,11 +73,12 @@ The sample solution architecture:
 ```
 sample-nova-sonic-speech2speech-webrtc/
 ├── README.md                    # This file
-├── start-python-server.sh      # Python server launcher script
+├── start-python-server.sh      # Python server launcher script (cross-platform)
 ├── start-react-client.sh       # React client launcher script
 ├── python-webrtc-server/        # Python WebRTC backend
 │   ├── webrtc_server.py        # Main server application
-│   ├── requirements.txt        # Python dependencies
+│   ├── environment.yml         # Conda environment configuration
+│   ├── requirements.txt        # Python pip dependencies
 │   ├── .env.template          # Environment configuration template
 │   ├── webrtc/                # WebRTC modules
 │   ├── integration/           # AWS and agent integrations
@@ -231,10 +246,11 @@ REACT_APP_KVS_CHANNEL_NAME=nova-s2s-webrtc-test
 # This script handles conda environment creation, dependency installation, and server startup
 ./start-python-server.sh
 
-# Available options:
-# ./start-python-ser
-# ./start-python-server.sh --region us-west-2
-# ./start-python-server.sh --skip-deps  # Skip dependency installation
+# The script automatically:
+# 1. Creates conda environment with Python 3.12, ffmpeg, pkg-config
+# 2. Installs av=11.0.0 via conda for proper FFmpeg linking
+# 3. Installs all Python packages via pip with conflict resolution
+# 4. Starts the WebRTC server
 ```
 
 **Terminal 2 - React Frontend:**
@@ -254,31 +270,31 @@ REACT_APP_KVS_CHANNEL_NAME=nova-s2s-webrtc-test
 ```bash
 cd python-webrtc-server
 
-# Create and activate conda environment
+# Method 1: Create conda environment manually
 conda env create -f environment.yml
 conda activate nova-s2s-webrtc
-
-# Or use venv if conda is not available
-python3 -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# .venv\Scripts\activate   # Windows
-# Install dependencies
 pip install -r requirements.txt
 
-# If your have successful run start-python-server.sh, there is Conda environment "nova-s2s-webrtc". 
-# So you can start the Python server manually as below.
+# Method 2: If you've successfully run start-python-server.sh
 conda activate nova-s2s-webrtc
-# Configure AWS credentials and Kinesis Video Streams signaling channel name
+
+# Configure environment variables
 export AWS_ACCESS_KEY_ID=your_access_key_here
-export AWS_SECRET_ACCESS_KEY=your_secret
+export AWS_SECRET_ACCESS_KEY=your_secret_key_here
 export AWS_REGION=ap-northeast-1
 export KVS_CHANNEL_NAME=nova-s2s-webrtc-test
 
 # Start server
 python webrtc_server.py
+
 # Available options:
 python webrtc_server.py --agent mcp
 ```
+
+**Important Notes:**
+- **Conda is required** (not optional) for proper av/FFmpeg linking
+- **Python 3.12** is required for AWS Bedrock runtime compatibility
+- **av=11.0.0** must be installed via conda to avoid compilation issues
 
 **React Frontend:**
 ```bash
@@ -400,14 +416,28 @@ bash ./start-python-server.sh
 bash start-python-server.sh
 ```
 
-#### Conda vs Venv Comparison
-| Feature | Conda (Recommended) | Venv |
-|---------|---------------------|------|
-| Cross-platform | ✅ Excellent | ⚠️ Platform-specific issues |
-| aiortc installation | ✅ Easy | ❌ Complex, requires system deps |
-| System dependencies | ✅ Handled automatically | ❌ Manual installation required |
-| Binary packages | ✅ Pre-compiled | ❌ May require compilation |
-| Environment isolation | ✅ Complete | ⚠️ Python-only |
+#### Dependency Management Strategy
+
+**Our Proven Approach:**
+- **Conda**: System dependencies (Python 3.12, ffmpeg, pkg-config, av=11.0.0)
+- **Pip**: Python packages (aiortc, AWS SDK, MCP, Strands agents)
+
+| Component | Installation Method | Reason |
+|-----------|-------------------|---------|
+| Python 3.12 | Conda | Required for AWS Bedrock runtime |
+| ffmpeg | Conda | System dependency for media processing |
+| pkg-config | Conda | Build tool for native extensions |
+| av=11.0.0 | Conda | Requires proper FFmpeg linking |
+| aiortc | Pip (with --no-deps) | Avoids conda dependency conflicts |
+| AWS SDK | Pip | Latest versions and compatibility |
+| All other packages | Pip | Maximum compatibility and flexibility |
+
+**Why This Approach:**
+- ✅ **Cross-platform compatibility** (macOS, Ubuntu, Windows)
+- ✅ **Avoids compilation errors** (no gcc required)
+- ✅ **Proper FFmpeg linking** for media processing
+- ✅ **Latest package versions** via pip
+- ✅ **Conflict resolution** between conda and pip packages
 
 ### Python Server Options
 
@@ -455,44 +485,74 @@ conda env update -n nova-s2s-webrtc -f environment.yml
 conda env remove -n nova-s2s-webrtc
 ```
 
-#### Manual System Dependencies without Conda (not recommended)
+#### Automated Setup Process
 
-**macOS:**
+The `start-python-server.sh` script handles all dependency management automatically:
+
+**What the script does:**
+1. **Detects your platform** (macOS, Linux, Windows)
+2. **Checks system dependencies** (provides installation guidance if missing)
+3. **Creates conda environment** with Python 3.12, ffmpeg, pkg-config
+4. **Installs av=11.0.0** via conda for proper FFmpeg linking
+5. **Installs Python packages** via pip with conflict resolution
+6. **Verifies all imports** work correctly
+7. **Starts the WebRTC server**
+
+**Platform-specific handling:**
+- **Linux**: Tries av=11.0.0, falls back to compatible versions if needed
+- **macOS**: Installs av=11.0.0 with proper Apple Silicon support
+- **Windows**: Handles Git Bash, PowerShell, and WSL environments
+
+**Error prevention:**
+- **No compilation required** - uses pre-built conda packages
+- **Prevents pip conflicts** - uses constraints and staged installation
+- **Proper shell escaping** - avoids creating unwanted files
+- **Comprehensive verification** - tests all critical imports
+
+## 🏠 Use Case Examples
+
+### Smart Home Example
+
+The Nova S2S WebRTC solution can be used with smart home demo for voice-controlled automation:
+
+**Example Commands:**
+- "Turn on the living room lights and set them to 50% brightness"
+- "What's the temperature in the bedroom?"
+- "Create a bedtime routine that turns off all lights and locks the doors"
+
+**Configuration:**
 ```bash
-# Install Xcode Command Line Tools
-xcode-select --install
-
-# Install dependencies via Homebrew
-brew install ffmpeg pkg-config
+# Smart home settings
+export KB_ID="xxxxxx"
+export KB_REGION="ap-northeast-1"
+# Start server with MCP integration
+python webrtc_server.py --agent mcp
 ```
 
-**Linux (Ubuntu/Debian):**
+### Connected Vehicle Example
+
+The example shows in-vehicle voice assistance with real-time vision AI processing:
+
+**Important Configuration for Vehicle Testing:**
+- **Enable VP8 codec** on KVS WebRTC Test Page Master
+- Use the test page at: https://awslabs.github.io/amazon-kinesis-video-streams-webrtc-sdk-js/examples/index.html
+- Configure the Python server in Viewer mode to connect to the test page
+
+**Vehicle Setup Steps:**
 ```bash
-sudo apt update
-sudo apt install -y \
-    build-essential \
-    pkg-config \
-    ffmpeg \
-    libavformat-dev \
-    libavcodec-dev \
-    libavdevice-dev \
-    libavfilter-dev \
-    libavutil-dev \
-    libswscale-dev \
-    libswresample-dev \
-    libasound2-dev \
-    portaudio19-dev
+# Start server in Viewer mode for vehicle testing
+cd python-webrtc-server
+conda activate nova-s2s-webrtc
+export ENABLE_PHONE_DETECTION=true
+python webrtc_server.py --webrtc-role Viewer --agent mcp
 ```
 
-**Windows:**
-```bash
-# Install Visual Studio Build Tools
-# Download from: https://visualstudio.microsoft.com/visual-cpp-build-tools/
-
-# Install FFmpeg
-choco install ffmpeg  # Using Chocolatey
-# Or download from: https://ffmpeg.org/download.html
-```
+**KVS Test Page Configuration:**
+1. Open [KVS WebRTC Test Page](https://awslabs.github.io/amazon-kinesis-video-streams-webrtc-sdk-js/examples/index.html)
+2. **Enable VP8 codec** in the video configuration (required for vehicle compatibility)
+3. Set channel name to match your server configuration
+4. Start as Master, then start your Python server in Viewer mode
+5. Hold mobile phone, then you'll see the detection video clips in logs/
 
 ## 🧪 Testing and Verification
 
@@ -546,11 +606,16 @@ vm_stat    # macOS
 
 #### Python Dependencies
 ```bash
-# aiortc installation fails
-conda install -c conda-forge aiortc  # Recommended approach
+# If start-python-server.sh fails, try manual environment recreation:
+conda env remove -n nova-s2s-webrtc -y
+conda env create -f python-webrtc-server/environment.yml
+conda activate nova-s2s-webrtc
+pip install -r python-webrtc-server/requirements.txt
 
-# Or install system dependencies first (if using venv)
-# See "Manual System Dependencies" section above
+# Common dependency issues:
+# - "av compilation failed" → Use conda for av installation
+# - "FFmpeg not found" → Ensure conda ffmpeg is installed
+# - "numpy version conflict" → Let conda handle numpy via av dependency
 ```
 
 #### AWS Configuration

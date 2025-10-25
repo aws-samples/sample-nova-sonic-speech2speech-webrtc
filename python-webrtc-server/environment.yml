@@ -1,50 +1,18 @@
+# Nova S2S WebRTC Environment Configuration
+# 
+# Strategy: Minimal conda (system only), all Python packages via pip
+# This completely avoids conda's aiortc/pylibsrtp dependency conflicts
+#
 name: nova-s2s-webrtc
 channels:
   - conda-forge
-  - defaults
 dependencies:
-  # Core Python and system dependencies
+  # System dependencies via conda (av installed separately for platform compatibility)
   - python=3.12
   - pip
-  
-  # System dependencies (cross-platform via conda-forge)
   - ffmpeg
   - pkg-config
+  - numpy=1.26.4  # Explicit version guarantee
+  # Note: av installed separately via script for platform-specific version handling
   
-  # Note: aiortc moved to pip dependencies for better cross-platform compatibility
-  
-  # Scientific computing packages (specific versions for Python 3.12 compatibility)
-  # These exact versions are tested to work together without conflicts
-  - numpy=1.26.4  # Stable version compatible with Python 3.12
-  - scipy=1.11.4  # Tested compatibility with numpy 1.26.4
-  - pillow  # Image processing (latest compatible version)
-  
-  # Pip dependencies (packages not available or better via pip)
-  - pip:
-    # WebRTC (better cross-platform support via pip)
-    - aiortc>=1.8.0
-    
-    # AWS SDK and Bedrock (requires Python 3.12+)
-    - boto3>=1.34.0
-    - botocore>=1.34.0
-    - aws-sdk-bedrock-runtime>=0.0.1
-    
-    # WebSocket and async support
-    - websockets>=11.0
-    - aiohttp>=3.8.0
-    
-    # Configuration and utilities
-    - python-dotenv>=1.0.0
-    - requests>=2.28.0
-    
-    # Media processing
-    - opencv-python>=4.8.0
-    - av>=10.0.0
-    
-    # System utilities
-    - psutil>=5.9.0
-    
-    # Agent and MCP integration (optional - may not be available)
-    # Note: These packages may not be available in all environments
-    # - mcp>=1.0.0
-    # - strands-agents>=0.1.0
+  # All other Python packages installed via pip (see requirements.txt)

@@ -6,6 +6,7 @@ Handles bidirectional audio processing and event routing as a WebRTC Viewer
 import asyncio
 import json
 import logging
+import os
 from typing import Dict, Optional
 from s2s_session_manager import S2sSessionManager
 from webrtc.KVSWebRTCViewer import KVSWebRTCViewer
@@ -45,6 +46,10 @@ class WebRTCS2SViewerIntegration:
         self.session_manager: Optional[S2sSessionManager] = None
         self.session_task: Optional[asyncio.Task] = None
         
+        # Phone detection (video processing)
+        self.phone_detector = None
+        self._pending_video_track = None  # Store video track if received before phone detection is ready
+        
         # Configuration - use defaults from S2sEvent
         self.default_prompt_name = "viewer_prompt"
         self.default_content_name = "viewer_content"
@@ -81,6 +86,7 @@ class WebRTCS2SViewerIntegration:
             self.webrtc_viewer.on_master_connected = self._handle_master_connected
             self.webrtc_viewer.on_master_disconnected = self._handle_master_disconnected
             self.webrtc_viewer.on_audio_received = self._handle_audio_received
+            self.webrtc_viewer.on_video_received = self._handle_video_received  # New: video callback
             self.webrtc_viewer.on_event_received = self._handle_event_received
             
             # Set audio configuration
@@ -196,6 +202,9 @@ class WebRTCS2SViewerIntegration:
             
             logger.info(f"✅ [WebRTCS2SViewerIntegration] S2S session ready - using default configuration")
             
+            # Initialize phone detection if enabled
+            await self._initialize_phone_detection()
+            
         except Exception as e:
             logger.error(f"❌ [WebRTCS2SViewerIntegration] Error handling master connection: {e}")
             
@@ -212,6 +221,15 @@ class WebRTCS2SViewerIntegration:
         Clean up session resources
         """
         try:
+            # Stop phone detection
+            if self.phone_detector:
+                try:
+                    self.phone_detector.stop_processing()
+                    self.phone_detector = None
+                    logger.debug(f"[WebRTCS2SViewerIntegration] Phone detection stopped")
+                except Exception as e:
+                    logger.error(f"[WebRTCS2SViewerIntegration] Error stopping phone detection: {e}")
+            
             # Cancel response processing task
             if self.session_task and not self.session_task.done():
                 self.session_task.cancel()
@@ -303,7 +321,7 @@ class WebRTCS2SViewerIntegration:
                     response = await asyncio.wait_for(self.session_manager.output_queue.get(), timeout=1.0)
                     response_count += 1
                     
-                    logger.info(f"[WebRTCS2SViewerIntegration] 📥 Received response #{response_count} from Nova Sonic")
+                    logger.debug(f"[WebRTCS2SViewerIntegration] 📥 Received response #{response_count} from Nova Sonic")
                     logger.debug(f"[WebRTCS2SViewerIntegration] Response keys: {list(response.keys())}")
                     
                     # Process different types of responses
@@ -407,6 +425,11 @@ class WebRTCS2SViewerIntegration:
                 # Add the track to the audio processor for processing
                 logger.info(f"🎵 [WebRTCS2SViewerIntegration] Adding audio track to processor...")
                 await self.webrtc_viewer.audio_processor.add_audio_track("master", audio_data)
+                
+                # Also add audio track to phone detection processor for MediaRecorder
+                if hasattr(self, 'phone_detector') and self.phone_detector:
+                    logger.info(f"🎵 [WebRTCS2SViewerIntegration] Adding audio track to phone detection processor for recording...")
+                    asyncio.create_task(self.phone_detector.handle_audio_track(audio_data, "master"))
                 
                 # Use MediaBlackhole to consume the track (required by aiortc)
                 from aiortc.contrib.media import MediaBlackhole
@@ -542,6 +565,87 @@ class WebRTCS2SViewerIntegration:
         except Exception as e:
             logger.error(f"[WebRTCS2SViewerIntegration] Error generating local events: {e}")
     
+    async def _initialize_phone_detection(self):
+        """
+        Initialize phone detection processor (Viewer mode only)
+        """
+        try:
+            # Check if phone detection is enabled
+            if os.getenv('ENABLE_PHONE_DETECTION', '').lower() != 'true':
+                logger.info("[WebRTCS2SViewerIntegration] Phone detection disabled")
+                return
+                
+            logger.info("[WebRTCS2SViewerIntegration] Initializing phone detection...")
+            
+            # Import phone detection processor
+            import sys
+            # Go up two levels from python-webrtc-server to project root, then to examples
+            project_root = os.path.dirname(os.path.dirname(__file__))
+            examples_path = os.path.join(project_root, 'examples', 'connected-vehicle')
+            if examples_path not in sys.path:
+                sys.path.append(examples_path)
+                
+            from phone_detection_processor import PhoneDetectionProcessor
+            
+            # Create MediaRecorder instance for phone detection recordings
+            from webrtc.MediaRecorder import MediaRecorder
+            media_recorder = MediaRecorder()
+            
+            # Initialize phone detector
+            self.phone_detector = PhoneDetectionProcessor(media_recorder)
+            
+            # Initialize the YOLO model
+            if self.phone_detector.initialize_model():
+                logger.info("✅ [WebRTCS2SViewerIntegration] Phone detection initialized successfully")
+                
+                # Check if we have a pending video track to process
+                if self._pending_video_track:
+                    logger.info("🔄 [WebRTCS2SViewerIntegration] Processing previously received video track")
+                    await self.phone_detector.handle_video_track(self._pending_video_track, "master")
+                    self._pending_video_track = None
+                    logger.info("✅ [WebRTCS2SViewerIntegration] Pending video track processed successfully")
+            else:
+                logger.warning("⚠️ [WebRTCS2SViewerIntegration] Phone detection initialization failed")
+                self.phone_detector = None
+                
+        except Exception as e:
+            logger.error(f"❌ [WebRTCS2SViewerIntegration] Error initializing phone detection: {e}")
+            self.phone_detector = None
+    
+    async def _handle_video_received(self, video_track):
+        """
+        Handle video received from WebRTC Master (separate from audio)
+        
+        Args:
+            video_track: WebRTC video track from Master
+        """
+        try:
+            logger.info(f"📹 [WebRTCS2SViewerIntegration] Video track received from Master: {type(video_track)}")
+            
+            if self.phone_detector and self.phone_detector.detection_enabled:
+                logger.info(f"📱 [WebRTCS2SViewerIntegration] Starting phone detection on video track")
+                # Process video track for phone detection
+                await self.phone_detector.handle_video_track(video_track, "master")
+            else:
+                logger.warning(f"⚠️ [WebRTCS2SViewerIntegration] Phone detection not ready yet, storing video track for later")
+                # Store video track for later processing when phone detection is ready
+                self._pending_video_track = video_track
+                # Use MediaBlackhole temporarily to consume the track
+                from aiortc.contrib.media import MediaBlackhole
+                MediaBlackhole().addTrack(video_track)
+                # Use MediaBlackhole to consume video track if no phone detection
+                from aiortc.contrib.media import MediaBlackhole
+                MediaBlackhole().addTrack(video_track)
+                
+        except Exception as e:
+            logger.error(f"❌ [WebRTCS2SViewerIntegration] Error handling video from Master: {e}")
+            # Fallback: use MediaBlackhole to prevent track issues
+            try:
+                from aiortc.contrib.media import MediaBlackhole
+                MediaBlackhole().addTrack(video_track)
+            except Exception as fallback_error:
+                logger.error(f"❌ [WebRTCS2SViewerIntegration] Fallback MediaBlackhole failed: {fallback_error}")
+    
     def get_integration_status(self) -> dict:
         """
         Get integration status and statistics
@@ -554,6 +658,7 @@ class WebRTCS2SViewerIntegration:
             'master_connected': self.master_connected,
             'session_active': self.session_manager.is_active if self.session_manager else False,
             'audio_stats': self.webrtc_viewer.get_audio_stats() if self.webrtc_viewer else {},
+            'phone_detection_stats': self.phone_detector.get_stats() if self.phone_detector else {},
             'region': self.region,
             'model_id': self.model_id
         }

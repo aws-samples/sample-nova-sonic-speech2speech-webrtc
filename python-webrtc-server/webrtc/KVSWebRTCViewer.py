@@ -73,6 +73,7 @@ class KVSWebRTCViewer:
         self.on_master_connected: Optional[Callable] = None
         self.on_master_disconnected: Optional[Callable] = None
         self.on_audio_received: Optional[Callable] = None
+        self.on_video_received: Optional[Callable] = None  # New: separate video callback
         self.on_event_received: Optional[Callable] = None
         
         # State
@@ -353,8 +354,11 @@ class KVSWebRTCViewer:
                 
             finally:
                 # Ensure websocket is closed
-                if websocket and not websocket.closed:
-                    await websocket.close()
+                if websocket:
+                    try:
+                        await websocket.close()
+                    except Exception:
+                        pass  # Already closed or connection lost
                 
         except Exception as e:
             logger.error(f"❌ [KVSWebRTCViewer] Signaling client error: {e}")
@@ -428,7 +432,15 @@ class KVSWebRTCViewer:
                     else:
                         logger.warning(f"⚠️ [KVSWebRTCViewer] No audio received callback set!")
                 elif track.kind == "video":
-                    logger.info(f"📹 [KVSWebRTCViewer] Video track received (ignoring)")
+                    logger.info(f"📹 [KVSWebRTCViewer] Video track received - forwarding to integration")
+                    # Handle incoming video from Master
+                    if self.on_video_received:
+                        asyncio.create_task(self.on_video_received(track))
+                    else:
+                        logger.info(f"📹 [KVSWebRTCViewer] No video received callback set - using MediaBlackhole")
+                        # Use MediaBlackhole to consume video track if no callback
+                        from aiortc.contrib.media import MediaBlackhole
+                        MediaBlackhole().addTrack(track)
                 else:
                     logger.info(f"❓ [KVSWebRTCViewer] Unknown track type: {track.kind}")
 
@@ -473,6 +485,10 @@ class KVSWebRTCViewer:
             self.audio_output_track = AudioOutputTrack(self.client_id)
             self.pc.addTrack(self.audio_output_track)
             
+            # Add video transceiver to request video from Master
+            logger.debug("📹 [KVSWebRTCViewer] Adding video transceiver to receive video from Master...")
+            self.pc.addTransceiver("video", direction="recvonly")
+            
             # Create data channel for sending events to Master
             logger.debug("📨 [KVSWebRTCViewer] Creating data channel...")
             self.data_channel = self.pc.createDataChannel('kvsDataChannel')
@@ -499,6 +515,8 @@ class KVSWebRTCViewer:
             offer = await self.pc.createOffer()
             await self.pc.setLocalDescription(offer)
             logger.debug(f"📤 [KVSWebRTCViewer] Local description set (new signaling state: {self.pc.signalingState})")
+
+
 
             logger.info("📤 [KVSWebRTCViewer] Sending SDP offer to Master...")
             await websocket.send(self._encode_msg('SDP_OFFER', {
@@ -553,6 +571,9 @@ class KVSWebRTCViewer:
                             continue
                             
                         logger.info(f"📥 [KVSWebRTCViewer] Received SDP answer from Master (signaling state: {self.pc.signalingState})")
+                        
+
+                        
                         await self.pc.setRemoteDescription(RTCSessionDescription(
                             sdp=payload["sdp"], 
                             type=payload["type"]

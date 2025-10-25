@@ -1,51 +1,37 @@
-# WebRTC Server Python Dependencies
-# 
-# NUMPY/SCIPY COMPATIBILITY NOTE:
-# Python 3.12 has specific compatibility requirements between numpy and scipy.
-# If you encounter version conflicts, try:
-# 1. pip uninstall numpy scipy
-# 2. pip install numpy==1.26.4 scipy==1.11.4
-# 3. Then install remaining dependencies
-# 
-# INSTALLATION METHODS:
-# 
-# Method 1: Conda (Recommended for development)
-# 1. conda install -c conda-forge aiortc opencv ffmpeg av psutil
-# 2. pip install -r requirements.txt
-#
-# Method 2: Standard pip (Production servers)
-# IMPORTANT: Requires Python 3.12+ for aws-sdk-bedrock-runtime
-# 1. Install Python 3.12+
-# 2. Install system dependencies first:
-#    Ubuntu/Debian: sudo apt-get install ffmpeg libavformat-dev libavcodec-dev libavdevice-dev libavfilter-dev libavutil-dev libswscale-dev libswresample-dev pkg-config
-#    CentOS/RHEL: sudo yum install ffmpeg-devel pkgconfig
-#    macOS: brew install ffmpeg pkg-config
-# 3. pip install -r requirements.txt
+# Nova S2S WebRTC Python Requirements
+# Install after creating conda environment with: pip install -r requirements.txt
 
-# Core Python dependencies (specific compatible versions for Python 3.12)
-# These versions are tested to work together without conflicts
-numpy==1.26.4  # Specific stable version for Python 3.12
-scipy==1.11.4  # Compatible with numpy 1.26.4
-psutil>=5.9.0
+# Core packages with tested versions
+# numpy installed via conda as av dependency
+scipy==1.11.4
+opencv-python==4.11.0.86
 
-# AWS and Bedrock dependencies (requires Python 3.12+)
+# WebRTC and media processing
+# av=11.0.0 installed via conda for proper FFmpeg linking
+aiortc==1.6.0
+
+# ML/AI packages
+ultralytics==8.3.0
+
+# AWS SDK and Bedrock (requires Python 3.12+)
 boto3>=1.34.0
 botocore>=1.34.0
 aws-sdk-bedrock-runtime>=0.0.1
-
-# WebRTC and media processing
-aiortc>=1.6.0,<2.0.0
-opencv-python>=4.8.0,<5.0.0
-av>=10.0.0,<12.0.0
+# Ensure all smithy components are compatible
+smithy-aws-core>=0.1.0
+smithy-core>=0.1.0
+smithy-http>=0.2.0
 
 # Web and networking
-websockets>=11.0.0,<13.0.0
-aiohttp>=3.8.0,<4.0.0
-requests>=2.28.0,<3.0.0
+websockets>=11.0
+aiohttp>=3.8.0
+requests>=2.28.0
 
-# Agent and MCP integration (may not be publicly available)
-# mcp>=1.0.0,<2.0.0
-# strands-agents>=0.1.0,<1.0.0
+# Configuration and utilities
+python-dotenv>=1.0.0
+psutil>=5.9.0
+pillow
 
-# Optional dependencies (uncomment if needed)
-# rx>=3.2.0  # Only needed if using reactive extensions
+# Agent and MCP integration
+mcp>=1.0.0
+strands-agents>=0.1.0

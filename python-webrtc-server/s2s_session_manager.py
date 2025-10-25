@@ -329,7 +329,7 @@ class S2sSessionManager:
                         logger.debug(f"🔇 [AUDIO] Audio below RMS threshold ({rms:.0f} < {self.rms_threshold}) - skipping transmission to Nova Sonic")
                         continue  # Skip sending this audio chunk to Nova Sonic
                     else:
-                        logger.info(f"🔇 [AUDIO] Audio above RMS threshold ({rms:.0f} > {self.rms_threshold}) - sending audio chunk to Nova Sonic")
+                        logger.debug(f"🔇 [AUDIO] Audio above RMS threshold ({rms:.0f} > {self.rms_threshold}) - sending audio chunk to Nova Sonic")
                         
                     if clipping_percent > 10:
                         logger.error(f"🔥 [AUDIO] SEVERE CLIPPING detected ({clipping_percent:.1f}%) - audio will be distorted!")

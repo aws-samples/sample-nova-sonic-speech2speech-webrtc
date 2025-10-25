@@ -3,6 +3,11 @@
 # Nova S2S WebRTC Python Server Startup Script
 # Cross-platform script for Mac, Linux, and Windows (Git Bash/WSL)
 # This script sets up the conda environment and starts the Python WebRTC server
+#
+# SETUP APPROACH:
+# - Conda: Python 3.12, ffmpeg, pkg-config, av=11.0.0 (for FFmpeg linking)
+# - Pip: All other Python packages from requirements.txt
+# - This avoids conda dependency conflicts while ensuring proper FFmpeg linking
 
 set -e  # Exit on any error
 
@@ -239,35 +244,101 @@ setup_conda_environment() {
             conda env create -f environment.yml
             print_success "Conda environment created successfully"
         fi
+        
+        # Activate environment
+        activate_conda_environment "$ENV_NAME"
+        
+        # Install av via conda for proper FFmpeg linking (platform-specific handling)
+        print_status "Installing av via conda for proper FFmpeg linking..."
+        case "$OS" in
+            "linux")
+                # On Linux, av=11.0.0 may not be available for Python 3.12, try different approaches
+                print_status "Installing av on Linux (trying multiple approaches)..."
+                
+                # Try av=11.0.0 first
+                if conda install -c conda-forge av=11.0.0 -y; then
+                    print_success "Successfully installed av=11.0.0 via conda"
+                # Try latest av version
+                elif conda install -c conda-forge av -y; then
+                    print_success "Successfully installed latest av version via conda"
+                # Try with Python 3.11 compatible version
+                elif conda install -c conda-forge "av>=10.0.0,<12.0.0" -y; then
+                    print_success "Successfully installed compatible av version via conda"
+                else
+                    print_error "Failed to install av via conda on Linux"
+                    print_error "This will cause FFmpeg linking issues if av is installed via pip"
+                    return 1
+                fi
+                ;;
+            *)
+                # macOS and Windows - try av=11.0.0 first, fallback to latest
+                if conda install -c conda-forge av=11.0.0 -y; then
+                    print_success "Successfully installed av=11.0.0 via conda"
+                elif conda install -c conda-forge av -y; then
+                    print_success "Successfully installed latest av version via conda"
+                else
+                    print_error "Failed to install av via conda"
+                    return 1
+                fi
+                ;;
+        esac
     else
-        # Fallback to manual creation
+        # Fallback to manual creation with our proven approach
         print_warning "environment.yml not found, creating environment manually..."
         
         # Check if conda environment exists
         if conda env list | grep -q "^$ENV_NAME "; then
             print_status "Conda environment '$ENV_NAME' already exists"
         else
-            print_status "Creating conda environment '$ENV_NAME' with Python 3.12..."
-            conda create -n "$ENV_NAME" python=3.12 -y
+            print_status "Creating conda environment '$ENV_NAME' with proven configuration..."
+            # Create environment with system dependencies only
+            conda create -n "$ENV_NAME" python=3.12 pip ffmpeg pkg-config -y
             print_success "Conda environment created"
         fi
         
-        # Activate and install essential packages
+        # Activate environment
         activate_conda_environment "$ENV_NAME"
         
-        # Install conda-forge packages (better cross-platform support)
-        print_status "Installing essential packages via conda-forge..."
-        conda install -c conda-forge aiortc ffmpeg pkg-config -y
+        # Install av via conda for proper FFmpeg linking (platform-specific handling)
+        print_status "Installing av via conda for proper FFmpeg linking..."
+        case "$OS" in
+            "linux")
+                # On Linux, try multiple approaches for av installation
+                print_status "Installing av on Linux (trying multiple approaches)..."
+                
+                if conda install -c conda-forge av=11.0.0 -y; then
+                    print_success "Successfully installed av=11.0.0 via conda"
+                elif conda install -c conda-forge av -y; then
+                    print_success "Successfully installed latest av version via conda"
+                elif conda install -c conda-forge "av>=10.0.0,<12.0.0" -y; then
+                    print_success "Successfully installed compatible av version via conda"
+                else
+                    print_error "Failed to install av via conda on Linux"
+                    return 1
+                fi
+                ;;
+            *)
+                # macOS and Windows
+                if conda install -c conda-forge av=11.0.0 -y; then
+                    print_success "Successfully installed av=11.0.0 via conda"
+                else
+                    print_error "Failed to install av via conda"
+                    return 1
+                fi
+                ;;
+        esac
         
-        # Install pip packages
-        print_status "Installing additional packages via pip..."
-        pip install boto3 websockets python-dotenv aiohttp numpy opencv-python Pillow
+        # Install Python packages via pip if requirements.txt exists
+        if [ -f "requirements.txt" ]; then
+            print_status "Installing Python packages via pip from requirements.txt..."
+            pip install -r requirements.txt
+        else
+            print_warning "requirements.txt not found, installing essential packages manually..."
+            pip install aiortc==1.6.0 boto3 aws-sdk-bedrock-runtime websockets python-dotenv aiohttp numpy opencv-python pillow mcp strands-agents
+        fi
         
         return 0
     fi
-    
-    # Activate conda environment
-    activate_conda_environment "$ENV_NAME"
 }
 
 # Function to check and create virtual environment with cross-platform support
@@ -321,118 +392,86 @@ setup_virtual_environment() {
     python -m pip install --upgrade pip
 }
 
-# Function to install dependencies with cross-platform support
+# Function to install dependencies with proven conda + pip approach
 install_dependencies() {
     print_status "Installing Python dependencies for $OS..."
     
-    # Check if requirements.txt exists (for venv fallback)
-    if [ ! -f "requirements.txt" ] && [[ "$USE_VENV_FALLBACK" == "true" ]]; then
+    # Check if requirements.txt exists
+    if [ ! -f "requirements.txt" ]; then
         print_error "requirements.txt not found in $PYTHON_SERVER_DIR"
-        print_error "This is required when using --fallback-venv option"
+        print_error "This file is required for pip package installation"
         return 1
     fi
     
-    # Install dependencies based on environment type
-    if [[ "$USE_VENV_FALLBACK" == "true" ]]; then
-        # Virtual environment - use requirements.txt
-        print_status "Installing from requirements.txt..."
-        python -m pip install -r requirements.txt
-        
-        # Platform-specific aiortc installation if needed
-        if ! pip show aiortc >/dev/null 2>&1; then
-            print_warning "aiortc not installed. Attempting platform-specific installation..."
-            
-            case "$OS" in
-                "windows")
-                    print_status "Installing aiortc for Windows..."
-                    python -m pip install aiortc==1.8.0 || {
-                        print_error "Failed to install aiortc on Windows"
-                        print_error "Try installing Visual Studio Build Tools or use conda instead"
-                        return 1
-                    }
-                    ;;
-                "macos")
-                    print_status "Installing aiortc for macOS..."
-                    python -m pip install aiortc==1.8.0 || {
-                        print_error "Failed to install aiortc on macOS"
-                        print_error "Install dependencies: brew install ffmpeg pkg-config"
-                        return 1
-                    }
-                    ;;
-                "linux")
-                    print_status "Installing aiortc for Linux..."
-                    python -m pip install aiortc==1.8.0 || {
-                        print_error "Failed to install aiortc on Linux"
-                        print_error "Install system dependencies first:"
-                        print_error "Ubuntu/Debian: sudo apt-get install ffmpeg libavformat-dev libavcodec-dev libavdevice-dev libavfilter-dev libavutil-dev libswscale-dev libswresample-dev pkg-config"
-                        print_error "CentOS/RHEL: sudo yum install ffmpeg-devel pkgconfig"
-                        return 1
-                    }
-                    ;;
-            esac
-        fi
-    else
-        # Conda environment - dependencies should already be installed via environment.yml
-        print_status "Verifying conda environment dependencies..."
-        
-        # Check key packages
-        local missing_packages=()
-        
-        if ! python -c "import aiortc" 2>/dev/null; then
-            missing_packages+=("aiortc")
-        fi
-        
-        if ! python -c "import boto3" 2>/dev/null; then
-            missing_packages+=("boto3")
-        fi
-        
-        if ! python -c "import websockets" 2>/dev/null; then
-            missing_packages+=("websockets")
-        fi
-        
-        if [ ${#missing_packages[@]} -gt 0 ]; then
-            print_warning "Missing packages detected: ${missing_packages[*]}"
-            print_status "Installing missing packages via pip..."
-            
-            for package in "${missing_packages[@]}"; do
-                case "$package" in
-                    "aiortc")
-                        # Prefer conda for aiortc
-                        conda install -c conda-forge aiortc -y || python -m pip install aiortc==1.8.0
-                        ;;
-                    *)
-                        python -m pip install "$package"
-                        ;;
-                esac
-            done
-        fi
-        
-        # Install additional pip packages if requirements.txt exists
-        if [ -f "requirements.txt" ]; then
-            print_status "Installing additional packages from requirements.txt..."
-            # Install packages that might not be in environment.yml
-            python -m pip install -r requirements.txt --ignore-installed || {
-                print_warning "Some packages from requirements.txt failed to install"
-                print_status "This is normal for packages that may not be available"
-            }
-        fi
+    # Verify av is installed via conda before proceeding
+    print_status "Verifying av is installed via conda..."
+    if ! python -c "import av" 2>/dev/null; then
+        print_error "av is not installed or not working"
+        print_error "This suggests conda av installation failed"
+        return 1
     fi
+    
+    # Check if av was installed via conda (not pip)
+    if conda list av | grep -q "conda-forge\|defaults"; then
+        print_success "av is correctly installed via conda"
+    else
+        print_warning "av may have been installed via pip, which can cause FFmpeg issues"
+    fi
+    
+    # Install Python packages via pip with special handling for av conflicts
+    print_status "Installing Python packages via pip (avoiding av conflicts)..."
+    python -m pip install --upgrade pip
+    
+    # First, install packages that don't depend on av
+    print_status "Installing packages that don't conflict with conda av..."
+    python -m pip install "scipy==1.11.4" "opencv-python==4.11.0.86" \
+        "boto3>=1.34.0" "botocore>=1.34.0" "aws-sdk-bedrock-runtime>=0.0.1" \
+        "smithy-aws-core>=0.1.0" "smithy-core>=0.1.0" "smithy-http>=0.2.0" \
+        "websockets>=11.0" "aiohttp>=3.8.0" "requests>=2.28.0" \
+        "python-dotenv>=1.0.0" "psutil>=5.9.0" "pillow" \
+        "mcp>=1.0.0" "strands-agents>=0.1.0"
+    
+    # Install aiortc dependencies first (except av which is already installed)
+    print_status "Installing aiortc dependencies..."
+    python -m pip install aioice pyee pylibsrtp pyopenssl google-crc32c cffi cryptography
+    
+    # Install aiortc with --no-deps to prevent av reinstallation
+    print_status "Installing aiortc without dependencies (av already via conda)..."
+    python -m pip install "aiortc==1.6.0" --no-deps
+    
+    # Install ultralytics last as it might have complex dependencies
+    print_status "Installing ultralytics..."
+    python -m pip install "ultralytics==8.3.0"
     
     # Verify critical dependencies
     print_status "Verifying installation..."
     python -c "
 import sys
 try:
+    import av
+    print(f'✓ av version: {av.__version__}')
     import aiortc
+    print('✓ aiortc imported successfully')
     import boto3
+    print('✓ boto3 imported successfully')
     import websockets
+    print('✓ websockets imported successfully')
+    from integration.mcp_client import McpLocationClient
+    print('✓ MCP client imported successfully')
+    from strands import Agent, tool
+    print('✓ Strands agent imported successfully')
     print('✓ All critical dependencies verified')
 except ImportError as e:
     print(f'✗ Missing dependency: {e}')
     sys.exit(1)
 "
     
-    print_success "Dependencies installed and verified successfully"
+    if [ $? -eq 0 ]; then
+        print_success "Dependencies installed and verified successfully"
+    else
+        print_error "Dependency verification failed"
+        return 1
+    fi
 }
 
 # Function to test environment setup
@@ -708,7 +747,7 @@ usage() {
     echo "  --help, -h          Show this help message"
     echo "  --test-only         Test environment setup without starting server"
     echo "  --skip-deps         Skip dependency installation"
-    echo "  --fallback-venv     Use Python venv instead of conda (not recommended)"
+
     echo "  --region REGION     Set AWS region (default: $DEFAULT_REGION)"
     echo "  --channel CHANNEL   Set KVS channel name (default: $DEFAULT_CHANNEL)"
     echo "  --model MODEL       Set Bedrock model ID (default: $DEFAULT_MODEL)"
@@ -722,19 +761,19 @@ usage() {
     echo "  LOGLEVEL           Logging level (DEBUG, INFO, WARNING, ERROR)"
     echo ""
     echo "Examples:"
-    echo "  $0                  Start server with conda (default)"
+    echo "  $0                  Start server with conda"
     echo "  $0 --test-only      Test environment setup only"
-    echo "  $0 --fallback-venv  Start server with Python venv (fallback)"
+
     echo ""
     echo "Cross-Platform Support:"
     echo "  Supported Platforms: macOS, Linux, Windows (Git Bash/WSL)"
-    echo "  Default: Uses conda for maximum cross-platform compatibility"
+    echo "  Uses conda for maximum cross-platform compatibility"
     echo "  Conda Benefits:"
     echo "    - Unified package management across all platforms"
-    echo "    - Automatic handling of system dependencies (ffmpeg, etc.)"
-    echo "    - Pre-compiled binaries for aiortc and complex packages"
+    echo "    - Automatic handling of system dependencies (ffmpeg, PyAV)"
+    echo "    - Pre-compiled binaries for complex packages"
     echo "    - Better reproducibility and easier deployment"
-    echo "    - Eliminates most compilation issues on Windows"
+    echo "    - Proper library linking (fixes PyAV/FFmpeg issues)"
     echo ""
     echo "Platform-Specific Notes:"
     echo "  macOS: Requires Xcode Command Line Tools for some packages"
@@ -755,7 +794,6 @@ trap cleanup SIGINT SIGTERM
 
 # Parse command line arguments
 SKIP_DEPS=false
-USE_VENV_FALLBACK=false
 TEST_ONLY=false
 
 while [[ $# -gt 0 ]]; do
@@ -772,10 +810,7 @@ while [[ $# -gt 0 ]]; do
             SKIP_DEPS=true
             shift
             ;;
-        --fallback-venv)
-            USE_VENV_FALLBACK=true
-            shift
-            ;;
+
         --region)
             export AWS_REGION="$2"
             shift 2
@@ -801,45 +836,25 @@ main() {
     print_status "Nova S2S WebRTC Python Server Startup"
     print_status "======================================"
     
-    # Check system dependencies (informational only for conda)
-    if [ "$USE_VENV_FALLBACK" = true ]; then
-        check_system_dependencies
-    fi
+    # Check system dependencies (informational)
+    check_system_dependencies
     
-    # Setup environment and dependencies
+    # Setup conda environment and dependencies
     if [ "$SKIP_DEPS" = false ]; then
-        if [ "$USE_VENV_FALLBACK" = true ]; then
-            print_warning "Using Python venv fallback (not recommended for production)"
-            if ! check_python_version; then
-                exit 1
-            fi
-            setup_virtual_environment
-            install_dependencies
-        else
-            # Default: Use conda
-            if ! check_conda_installation; then
-                exit 1
-            fi
-            setup_conda_environment
-            install_dependencies
+        # Use conda (only supported method)
+        if ! check_conda_installation; then
+            exit 1
         fi
+        setup_conda_environment
+        install_dependencies
     else
         print_status "Skipping dependency installation"
         cd "$PYTHON_SERVER_DIR"
-        if [ "$USE_VENV_FALLBACK" = true ]; then
-            if [ -d ".venv" ]; then
-                source .venv/bin/activate
-            else
-                print_error "Virtual environment not found. Run without --skip-deps first."
-                exit 1
-            fi
-        else
-            # Default: Use conda
-            if ! check_conda_installation; then
-                exit 1
-            fi
-            activate_conda_environment "nova-s2s-webrtc"
+        # Use conda (only supported method)
+        if ! check_conda_installation; then
+            exit 1
         fi
+        activate_conda_environment "nova-s2s-webrtc"
     fi
     
     # If test-only mode, run tests and exit (skip environment config check)
