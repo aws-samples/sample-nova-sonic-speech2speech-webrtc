@@ -406,8 +406,8 @@ class AudioProcessor:
                 # aiortc AudioFrame
                 audio_array = frame.to_ndarray()
                 
-                # DEBUG: Log original array shape and size
-                logger.debug(f"🔍 [AudioProcessor] Raw frame.to_ndarray() shape: {audio_array.shape}, size: {audio_array.size}")
+                # TRACE: Log original array shape and size
+                logger.trace(f"🔍 [AudioProcessor] Raw frame.to_ndarray() shape: {audio_array.shape}, size: {audio_array.size}")
                 
                 # Check if we have session configuration cached for this client
                 session_config = self.session_audio_config.get(client_id)
@@ -503,11 +503,11 @@ class AudioProcessor:
                 if audio_array.dtype == np.int16:
                     # Convert int16 to float32 normalized to [-1.0, 1.0]
                     float32_array = audio_array.astype(np.float32) / 32767.0
-                    logger.debug(f"🔧 [AudioProcessor] Converted int16 to normalized float32")
+                    logger.trace(f"🔧 [AudioProcessor] Converted int16 to normalized float32")
                 elif audio_array.dtype == np.int32:
                     # Convert int32 to float32 normalized to [-1.0, 1.0]
                     float32_array = audio_array.astype(np.float32) / 2147483647.0
-                    logger.debug(f"🔧 [AudioProcessor] Converted int32 to normalized float32")
+                    logger.trace(f"🔧 [AudioProcessor] Converted int32 to normalized float32")
                 else:
                     # Assume it's already float32, but check the range
                     float32_array = audio_array.astype(np.float32)
@@ -516,15 +516,15 @@ class AudioProcessor:
                         # Looks like unnormalized integer data in float format
                         if max_val <= 32767:
                             float32_array = float32_array / 32767.0
-                            logger.debug(f"🔧 [AudioProcessor] Normalized float32 data (was int16-like): max {max_val} -> {np.max(np.abs(float32_array)):.3f}")
+                            logger.trace(f"🔧 [AudioProcessor] Normalized float32 data (was int16-like): max {max_val} -> {np.max(np.abs(float32_array)):.3f}")
                         elif max_val <= 2147483647:
                             float32_array = float32_array / 2147483647.0
-                            logger.debug(f"🔧 [AudioProcessor] Normalized float32 data (was int32-like): max {max_val} -> {np.max(np.abs(float32_array)):.3f}")
+                            logger.trace(f"🔧 [AudioProcessor] Normalized float32 data (was int32-like): max {max_val} -> {np.max(np.abs(float32_array)):.3f}")
                 
                 # Log WebRTC audio levels after normalization
                 rms = np.sqrt(np.mean(float32_array ** 2))
                 max_val = np.max(np.abs(float32_array))
-                logger.debug(f"[AudioProcessor] WebRTC audio levels: RMS={rms:.3f}, Max={max_val:.3f}")
+                logger.trace(f"[AudioProcessor] WebRTC audio levels: RMS={rms:.3f}, Max={max_val:.3f}")
                 
                 return float32_array
                 
@@ -651,21 +651,21 @@ class AudioProcessor:
                 actual_duration = actual_samples / self.target_sample_rate
                 duration_error = abs(actual_duration - input_duration) / input_duration * 100
                 
-                logger.debug(f"🔍 [AudioProcessor] PRECISION VERIFICATION for {client_id}:")
-                logger.debug(f"   Input duration: {input_duration:.6f}s")
-                logger.debug(f"   Output duration: {actual_duration:.6f}s")
-                logger.debug(f"   Duration error: {duration_error:.3f}%")
-                logger.debug(f"   Actual samples: {actual_samples}")
+                logger.trace(f"🔍 [AudioProcessor] PRECISION VERIFICATION for {client_id}:")
+                logger.trace(f"   Input duration: {input_duration:.6f}s")
+                logger.trace(f"   Output duration: {actual_duration:.6f}s")
+                logger.trace(f"   Duration error: {duration_error:.3f}%")
+                logger.trace(f"   Actual samples: {actual_samples}")
                 
                 if duration_error > 0.1:  # More strict than before
                     logger.error(f"❌ [AudioProcessor] TIMING PRECISION FAILED!")
                     logger.error(f"   Duration error {duration_error:.3f}% exceeds 0.1% threshold")
                     logger.error(f"   This may cause audio to sound slow or fast!")
                 else:
-                    logger.debug(f"✅ [AudioProcessor] Timing precision verification passed")
+                    logger.trace(f"✅ [AudioProcessor] Timing precision verification passed")
             else:
                 # No resampling needed
-                logger.debug(f"🔍 [AudioProcessor] No resampling needed for {client_id}: already {original_sample_rate}Hz")
+                logger.trace(f"🔍 [AudioProcessor] No resampling needed for {client_id}: already {original_sample_rate}Hz")
                 
             # Convert float32 to int16 (PCM 16-bit)
             # First, normalize the audio data to proper float32 range [-1.0, 1.0]
@@ -680,7 +680,7 @@ class AudioProcessor:
             server_gain_reduction = 0.8  # Conservative reduction after normalization
             audio_data = audio_data * server_gain_reduction
             
-            logger.debug(f"🔧 [AudioProcessor] Applied server-side gain reduction: {server_gain_reduction}x")
+            logger.trace(f"🔧 [AudioProcessor] Applied server-side gain reduction: {server_gain_reduction}x")
             
             # Debug: Check audio levels AFTER gain reduction (only log occasionally)
             output_rms = np.sqrt(np.mean(audio_data.astype(np.float32) ** 2))
@@ -704,8 +704,8 @@ class AudioProcessor:
             )
             
             if should_log_gain:
-                logger.debug(f"🔍 [AudioProcessor] AFTER GAIN for {client_id}: RMS={output_rms:.3f}, Max={output_max:.3f}, Clipping={output_clipping:.1f}%")
-                logger.debug(f"🔍 [AudioProcessor] FINAL 16-BIT for {client_id}: RMS={final_rms:.0f}, Max={final_max:.0f}, Clipping={final_clipping:.1f}%")
+                logger.trace(f"🔍 [AudioProcessor] AFTER GAIN for {client_id}: RMS={output_rms:.3f}, Max={output_max:.3f}, Clipping={output_clipping:.1f}%")
+                logger.trace(f"🔍 [AudioProcessor] FINAL 16-BIT for {client_id}: RMS={final_rms:.0f}, Max={final_max:.0f}, Clipping={final_clipping:.1f}%")
                 self.logged_info[client_id].add('gain_analysis')
             
             # Add processed audio to buffer for merging (after resampling, before converting to bytes)
@@ -715,7 +715,7 @@ class AudioProcessor:
             
             # Buffer processed audio for debugging (only if debug saving enabled)
             if self.audio_debug_save_enabled:
-                logger.debug(f"🔍 [AudioProcessor] Buffering processed audio: {len(audio_data)} samples at {self.target_sample_rate}Hz")
+                logger.trace(f"🔍 [AudioProcessor] Buffering processed audio: {len(audio_data)} samples at {self.target_sample_rate}Hz")
                 self._add_to_audio_buffer(audio_data.copy(), self.target_sample_rate, is_original=False)
             
             # Convert to bytes

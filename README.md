@@ -509,6 +509,69 @@ The `start-python-server.sh` script handles all dependency management automatica
 - **Proper shell escaping** - avoids creating unwanted files
 - **Comprehensive verification** - tests all critical imports
 
+
+## WebRTCVAD Configuration
+### Enable/Disable WebRTCVAD
+
+Control whether VAD filtering is used:
+
+```bash
+# Enable WebRTCVAD filtering (default)
+export WEBRTCVAD_ENABLED=true
+
+# Disable VAD - send all audio to Nova Sonic
+export WEBRTCVAD_ENABLED=false
+```
+
+### VAD Aggressiveness Levels
+
+When VAD is enabled, set the `VAD_AGGRESSIVENESS` environment variable to control sensitivity:
+
+```bash
+# Most permissive (detects more audio as speech)
+export VAD_AGGRESSIVENESS=0
+
+# Low aggressiveness
+export VAD_AGGRESSIVENESS=1
+
+# Moderate (default, recommended)
+export VAD_AGGRESSIVENESS=2
+
+# Most aggressive (strictest speech detection)
+export VAD_AGGRESSIVENESS=3
+```
+
+### Aggressiveness Level Guide
+
+| Level | Description | Use Case |
+|-------|-------------|----------|
+| **0** | Least aggressive | Noisy environments, capture more speech |
+| **1** | Low | Slightly noisy environments |
+| **2** | Moderate | **Default** - balanced for most use cases |
+| **3** | Most aggressive | Quiet environments, strict speech filtering |
+
+### Frame Processing
+- **Frame Duration**: 30ms (configurable)
+- **Sample Rate**: 16kHz (Nova Sonic compatible)
+- **Frame Size**: 480 samples per frame
+- **Processing**: Each audio chunk is split into frames and analyzed
+
+### VAD Enabled (Default)
+```
+✅ WebRTCVAD enabled - Aggressiveness level: 2
+🎤 [VAD] Speech detected (3/10 frames, 30.0%) - sending audio chunk to Nova Sonic
+🔇 [VAD] No speech detected (0/10 frames, 0.0%) - skipping transmission to Nova Sonic
+```
+
+### VAD Disabled
+```
+🔇 WebRTCVAD disabled via WEBRTCVAD_ENABLED=false - sending all audio to Nova Sonic
+🎵 [NO-FILTER] Sending all audio to Nova Sonic (VAD disabled)
+```
+
+
+
+
 ## 🏠 Use Case Examples
 
 ### Smart Home Example

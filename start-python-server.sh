@@ -248,6 +248,22 @@ setup_conda_environment() {
         # Activate environment
         activate_conda_environment "$ENV_NAME"
         
+        # Try to install webrtcvad (conda first, then pip fallback)
+        print_status "Attempting to install webrtcvad via conda (pre-compiled)..."
+        if conda install -c conda-forge webrtcvad -y; then
+            print_success "webrtcvad installed successfully via conda"
+            export WEBRTCVAD_INSTALLED=true
+        else
+            print_warning "conda webrtcvad failed, trying pip..."
+            if python -m pip install "webrtcvad>=2.0.10"; then
+                print_success "webrtcvad installed successfully via pip"
+                export WEBRTCVAD_INSTALLED=true
+            else
+                print_warning "webrtcvad installation failed (will use RMS fallback)"
+                export WEBRTCVAD_INSTALLED=false
+            fi
+        fi
+        
         # Install av via conda for proper FFmpeg linking (platform-specific handling)
         print_status "Installing av via conda for proper FFmpeg linking..."
         case "$OS" in
@@ -299,13 +315,42 @@ setup_conda_environment() {
         # Activate environment
         activate_conda_environment "$ENV_NAME"
         
+        # Try to install webrtcvad (conda first, then pip fallback)
+        print_status "Attempting to install webrtcvad via conda (pre-compiled)..."
+        if conda install -c conda-forge webrtcvad -y; then
+            print_success "webrtcvad installed successfully via conda"
+            export WEBRTCVAD_INSTALLED=true
+        else
+            print_warning "conda webrtcvad failed, trying pip..."
+            if python -m pip install "webrtcvad>=2.0.10"; then
+                print_success "webrtcvad installed successfully via pip"
+                export WEBRTCVAD_INSTALLED=true
+            else
+                print_warning "webrtcvad installation failed (will use RMS fallback)"
+                export WEBRTCVAD_INSTALLED=false
+            fi
+        fi
+        
         # Install av via conda for proper FFmpeg linking (platform-specific handling)
         print_status "Installing av via conda for proper FFmpeg linking..."
         case "$OS" in
             "linux")
-                # On Linux, try multiple approaches for av installation
-                print_status "Installing av on Linux (trying multiple approaches)..."
+                # On Linux, install build tools first for packages that need compilation
+                print_status "Installing build tools and av on Linux..."
                 
+                # Install build essentials via conda (safer than system packages)
+                print_status "Installing build tools via conda..."
+                if conda install -c conda-forge gcc_linux-64 gxx_linux-64 make -y; then
+                    print_success "Build tools installed via conda"
+                    # Activate the compiler environment
+                    export CC=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc
+                    export CXX=$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++
+                    print_status "Compiler environment activated: CC=$CC"
+                else
+                    print_warning "Failed to install build tools via conda, will try system approach later..."
+                fi
+                
+                # Install av
                 if conda install -c conda-forge av=11.0.0 -y; then
                     print_success "Successfully installed av=11.0.0 via conda"
                 elif conda install -c conda-forge av -y; then
@@ -316,6 +361,8 @@ setup_conda_environment() {
                     print_error "Failed to install av via conda on Linux"
                     return 1
                 fi
+                
+
                 ;;
             *)
                 # macOS and Windows
@@ -325,16 +372,34 @@ setup_conda_environment() {
                     print_error "Failed to install av via conda"
                     return 1
                 fi
+
                 ;;
         esac
         
         # Install Python packages via pip if requirements.txt exists
         if [ -f "requirements.txt" ]; then
             print_status "Installing Python packages via pip from requirements.txt..."
-            pip install -r requirements.txt
+            
+            # Handle av conflict: install aiortc with --no-deps since av is from conda
+            print_status "Installing aiortc dependencies (excluding av)..."
+            pip install aioice pyee pylibsrtp pyopenssl google-crc32c cffi cryptography
+            
+            print_status "Installing aiortc without dependencies (av already via conda)..."
+            pip install "aiortc==1.6.0" --no-deps
+            
+            # Install remaining packages from requirements.txt (excluding aiortc and av)
+            print_status "Installing remaining packages from requirements.txt..."
+            grep -v "^aiortc[>=<]" requirements.txt | grep -v "^av[>=<]" > requirements_filtered.txt
+            pip install -r requirements_filtered.txt
+            rm -f requirements_filtered.txt
+            
         else
             print_warning "requirements.txt not found, installing essential packages manually..."
-            pip install aiortc==1.6.0 boto3 aws-sdk-bedrock-runtime websockets python-dotenv aiohttp numpy opencv-python pillow mcp strands-agents
+            pip install boto3 aws-sdk-bedrock-runtime websockets python-dotenv aiohttp numpy opencv-python pillow mcp strands-agents webrtcvad scipy ultralytics
+            
+            # Install aiortc with proper handling
+            pip install aioice pyee pylibsrtp pyopenssl google-crc32c cffi cryptography
+            pip install "aiortc==1.6.0" --no-deps
         fi
         
         return 0
@@ -422,48 +487,122 @@ install_dependencies() {
     print_status "Installing Python packages via pip (avoiding av conflicts)..."
     python -m pip install --upgrade pip
     
-    # First, install packages that don't depend on av
-    print_status "Installing packages that don't conflict with conda av..."
-    python -m pip install "scipy==1.11.4" "opencv-python==4.11.0.86" \
-        "boto3>=1.34.0" "botocore>=1.34.0" "aws-sdk-bedrock-runtime>=0.0.1" \
-        "smithy-aws-core>=0.1.0" "smithy-core>=0.1.0" "smithy-http>=0.2.0" \
-        "websockets>=11.0" "aiohttp>=3.8.0" "requests>=2.28.0" \
-        "python-dotenv>=1.0.0" "psutil>=5.9.0" "pillow" \
-        "mcp>=1.0.0" "strands-agents>=0.1.0"
-    
-    # Install aiortc dependencies first (except av which is already installed)
-    print_status "Installing aiortc dependencies..."
-    python -m pip install aioice pyee pylibsrtp pyopenssl google-crc32c cffi cryptography
-    
-    # Install aiortc with --no-deps to prevent av reinstallation
-    print_status "Installing aiortc without dependencies (av already via conda)..."
-    python -m pip install "aiortc==1.6.0" --no-deps
-    
-    # Install ultralytics last as it might have complex dependencies
-    print_status "Installing ultralytics..."
-    python -m pip install "ultralytics==8.3.0"
+    # Check if requirements.txt exists and use it
+    if [ -f "requirements.txt" ]; then
+        print_status "Installing from requirements.txt with conflict handling..."
+        
+        # Create a temporary requirements file excluding packages handled separately
+        print_status "Creating temporary requirements without conflicting packages..."
+        grep -v "^av[>=<]" requirements.txt > requirements_temp.txt || cp requirements.txt requirements_temp.txt
+        
+        # Exclude webrtcvad from requirements.txt since we handle it separately
+        print_status "Excluding webrtcvad from requirements.txt (handled separately)..."
+        grep -v "^webrtcvad[>=<]" requirements_temp.txt > requirements_temp2.txt 2>/dev/null || cp requirements_temp.txt requirements_temp2.txt
+        mv requirements_temp2.txt requirements_temp.txt
+        
+        # Install aiortc dependencies first (except av which is already installed via conda)
+        print_status "Installing aiortc dependencies (excluding av)..."
+        python -m pip install aioice pyee pylibsrtp pyopenssl google-crc32c cffi cryptography
+        
+        # Install aiortc with --no-deps to prevent av reinstallation
+        print_status "Installing aiortc without dependencies (av already via conda)..."
+        python -m pip install "aiortc==1.6.0" --no-deps
+        
+        # Install remaining packages from requirements.txt (excluding handled packages)
+        print_status "Installing remaining packages from requirements.txt..."
+        grep -v "^aiortc[>=<]" requirements_temp.txt | grep -v "^av[>=<]" > requirements_final.txt
+        
+        # Install remaining packages
+        python -m pip install -r requirements_final.txt
+        
+        # Clean up temporary files
+        rm -f requirements_temp.txt requirements_final.txt
+        
+    else
+        print_warning "requirements.txt not found, using fallback installation..."
+        
+        # Fallback: install essential packages manually
+        print_status "Installing essential packages manually..."
+        python -m pip install "scipy==1.11.4" "opencv-python==4.11.0.86" \
+            "boto3>=1.34.0" "botocore>=1.34.0" "aws-sdk-bedrock-runtime>=0.0.1" \
+            "smithy-aws-core>=0.1.0" "smithy-core>=0.1.0" "smithy-http>=0.2.0" \
+            "websockets>=11.0" "aiohttp>=3.8.0" "requests>=2.28.0" \
+            "python-dotenv>=1.0.0" "psutil>=5.9.0" "pillow" \
+            "mcp>=1.0.0" "strands-agents>=0.1.0" \
+            "ultralytics==8.3.0"
+        
+        # Install aiortc dependencies first (except av which is already installed)
+        print_status "Installing aiortc dependencies..."
+        python -m pip install aioice pyee pylibsrtp pyopenssl google-crc32c cffi cryptography
+        
+        # Install aiortc with --no-deps to prevent av reinstallation
+        print_status "Installing aiortc without dependencies (av already via conda)..."
+        python -m pip install "aiortc==1.6.0" --no-deps
+    fi
     
     # Verify critical dependencies
     print_status "Verifying installation..."
     python -c "
 import sys
-try:
-    import av
-    print(f'✓ av version: {av.__version__}')
-    import aiortc
-    print('✓ aiortc imported successfully')
-    import boto3
-    print('✓ boto3 imported successfully')
-    import websockets
-    print('✓ websockets imported successfully')
-    from integration.mcp_client import McpLocationClient
-    print('✓ MCP client imported successfully')
-    from strands import Agent, tool
-    print('✓ Strands agent imported successfully')
-    print('✓ All critical dependencies verified')
-except ImportError as e:
-    print(f'✗ Missing dependency: {e}')
+
+# Critical dependencies (required)
+critical_deps = [
+    ('av', 'av'),
+    ('aiortc', 'aiortc'),
+    ('boto3', 'boto3'),
+    ('websockets', 'websockets'),
+    ('integration.mcp_client', 'MCP client'),
+    ('strands', 'Strands agent')
+]
+
+# Optional dependencies
+optional_deps = [
+    ('webrtcvad', 'webrtcvad (VAD)')
+]
+
+failed_critical = []
+missing_optional = []
+
+# Check critical dependencies
+for module, name in critical_deps:
+    try:
+        if module == 'av':
+            import av
+            print(f'✓ av version: {av.__version__}')
+        elif module == 'integration.mcp_client':
+            from integration.mcp_client import McpLocationClient
+            print(f'✓ {name} imported successfully')
+        elif module == 'strands':
+            from strands import Agent, tool
+            print(f'✓ {name} imported successfully')
+        else:
+            __import__(module)
+            print(f'✓ {name} imported successfully')
+    except ImportError as e:
+        print(f'✗ {name}: {e}')
+        failed_critical.append(name)
+
+# Check optional dependencies
+for module, name in optional_deps:
+    try:
+        __import__(module)
+        print(f'✓ {name} imported successfully (VAD enabled)')
+    except ImportError:
+        print(f'⚠ {name}: Not available (will use RMS fallback)')
+        missing_optional.append(name)
+
+# Summary
+if failed_critical:
+    print(f'\\n❌ Critical dependencies missing: {failed_critical}')
+    print('Installation failed - please check the errors above')
     sys.exit(1)
+else:
+    print('\\n✅ All critical dependencies verified')
+    if missing_optional:
+        print(f'⚠️ Optional dependencies missing: {missing_optional}')
+        print('Server will work with reduced functionality')
+    else:
+        print('✅ All optional dependencies available')
 "
     
     if [ $? -eq 0 ]; then
@@ -515,22 +654,40 @@ test_environment_setup() {
         print_status "Test 5: Critical package imports"
         python -c "
 import sys
-packages = ['aiortc', 'boto3', 'websockets', 'cv2', 'PIL', 'numpy']
-failed = []
 
-for pkg in packages:
+# Critical packages (required)
+critical_packages = ['aiortc', 'boto3', 'websockets', 'cv2', 'PIL', 'numpy']
+# Optional packages
+optional_packages = ['webrtcvad']
+
+failed_critical = []
+missing_optional = []
+
+# Test critical packages
+for pkg in critical_packages:
     try:
         __import__(pkg)
         print(f'✓ {pkg}')
     except ImportError:
         print(f'✗ {pkg}')
-        failed.append(pkg)
+        failed_critical.append(pkg)
 
-if failed:
-    print(f'Failed imports: {failed}')
+# Test optional packages
+for pkg in optional_packages:
+    try:
+        __import__(pkg)
+        print(f'✓ {pkg} (optional)')
+    except ImportError:
+        print(f'⚠ {pkg} (optional - not available)')
+        missing_optional.append(pkg)
+
+if failed_critical:
+    print(f'Critical packages failed: {failed_critical}')
     sys.exit(1)
 else:
     print('All critical packages imported successfully')
+    if missing_optional:
+        print(f'Optional packages missing: {missing_optional}')
 "
         
         if [ $? -eq 0 ]; then
@@ -686,7 +843,12 @@ check_system_dependencies() {
         "linux")
             # Check for essential build tools
             if ! command_exists gcc; then
-                print_warning "gcc not found. Install build-essential (Ubuntu) or Development Tools (CentOS)"
+                print_warning "gcc not found. Some packages (like webrtcvad) may fail to compile"
+                print_warning "Install build tools:"
+                print_warning "  Ubuntu/Debian: sudo apt-get install build-essential python3-dev"
+                print_warning "  CentOS/RHEL: sudo yum groupinstall 'Development Tools'"
+                print_warning "  Fedora: sudo dnf groupinstall 'Development Tools'"
+                print_warning "Or the script will try to install them automatically"
             fi
             ;;
     esac

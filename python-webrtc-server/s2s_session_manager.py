@@ -14,6 +14,16 @@ from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver, SigV4
 from smithy_aws_core.identity.environment import EnvironmentCredentialsResolver
 from integration import inline_agent, bedrock_knowledge_bases as kb
 
+# Import webrtcvad with error handling
+try:
+    import webrtcvad
+    WEBRTCVAD_AVAILABLE = True
+except ImportError as e:
+    logger.error(f"❌ WebRTCVAD not available: {e}")
+    logger.error("📦 Install with: pip install webrtcvad>=2.0.10")
+    logger.error("🔄 Falling back to RMS-based filtering")
+    WEBRTCVAD_AVAILABLE = False
+
 # Suppress warnings
 warnings.filterwarnings("ignore")
 
@@ -66,9 +76,28 @@ class S2sSessionManager:
         # Audio data saving control (disabled by default, enable with AUDIO_DEBUG_SAVE=true)
         self.audio_debug_save_enabled = os.getenv('AUDIO_DEBUG_SAVE', 'false').lower() == 'true'
         
-        # Voice quality control configuration
-        self.rms_threshold = float(os.getenv('AUDIO_RMS_THRESHOLD', '10'))  # Default RMS threshold of 10
-        logger.debug(f"[S2sSessionManager] Voice quality control - RMS threshold: {self.rms_threshold} (set AUDIO_RMS_THRESHOLD to change)")
+        # Voice Activity Detection (VAD) configuration
+        self.vad_enabled = os.getenv('WEBRTCVAD_ENABLED', 'true').lower() == 'true'
+        
+        if self.vad_enabled and WEBRTCVAD_AVAILABLE:
+            # WebRTCVAD configuration
+            self.vad = webrtcvad.Vad()
+            self.vad_aggressiveness = int(os.getenv('VAD_AGGRESSIVENESS', '2'))  # 0-3, 2 = moderate
+            self.vad.set_mode(self.vad_aggressiveness)
+            logger.info(f"[S2sSessionManager] ✅ WebRTCVAD enabled - Aggressiveness level: {self.vad_aggressiveness} (set VAD_AGGRESSIVENESS 0-3 to change)")
+            
+            # VAD frame configuration for 16kHz audio
+            self.vad_frame_duration_ms = 30  # 30ms frames (WebRTCVAD supports 10ms, 20ms, 30ms)
+            self.vad_frame_size = int(16000 * self.vad_frame_duration_ms / 1000)  # 480 samples for 16kHz, 30ms
+            logger.info(f"[S2sSessionManager] VAD frame configuration - Duration: {self.vad_frame_duration_ms}ms, Size: {self.vad_frame_size} samples")
+            self.use_vad = True
+        else:
+            # VAD disabled or not available - send all audio to Nova
+            if not self.vad_enabled:
+                logger.info(f"[S2sSessionManager] 🔇 WebRTCVAD disabled via WEBRTCVAD_ENABLED=false - sending all audio to Nova Sonic")
+            else:
+                logger.info(f"[S2sSessionManager] ⚠️ WebRTCVAD not available - sending all audio to Nova Sonic")
+            self.use_vad = False
         
         # Always initialize audio chunk counter for logging purposes
         self.audio_chunk_counter = 0
@@ -308,7 +337,7 @@ class S2sSessionManager:
                 # Save audio data to file for analysis (only if debug saving enabled, but always increment counter)
                 saved_file = self._save_audio_chunk(audio_bytes, final_prompt_name, final_content_name)
                 
-                # Analyze audio quality (simplified logging)
+                # Analyze audio quality and perform Voice Activity Detection
                 try:
                     import base64
                     import numpy as np
@@ -324,20 +353,44 @@ class S2sSessionManager:
                     if self.audio_chunk_counter % 10 == 0:  # Every 10 chunks instead of every chunk
                         logger.debug(f"🎵➡️ [AUDIO] Chunk #{self.audio_chunk_counter}: {len(audio_samples)} samples, RMS={rms:.0f}, Clipping={clipping_percent:.1f}%")
                     
-                    # Voice quality control - filter out low-volume audio
-                    if rms < self.rms_threshold:  # Configurable RMS threshold for filtering
-                        logger.debug(f"🔇 [AUDIO] Audio below RMS threshold ({rms:.0f} < {self.rms_threshold}) - skipping transmission to Nova Sonic")
-                        continue  # Skip sending this audio chunk to Nova Sonic
-                    else:
-                        logger.debug(f"🔇 [AUDIO] Audio above RMS threshold ({rms:.0f} > {self.rms_threshold}) - sending audio chunk to Nova Sonic")
+                    # Voice Activity Detection (if enabled)
+                    if self.use_vad:
+                        # WebRTCVAD - process audio in VAD-compatible frames
+                        has_speech = False
+                        speech_frames = 0
+                        total_frames = 0
                         
+                        for i in range(0, len(audio_samples), self.vad_frame_size):
+                            frame = audio_samples[i:i+self.vad_frame_size]
+                            if len(frame) == self.vad_frame_size:  # Only process complete frames
+                                total_frames += 1
+                                frame_bytes = frame.tobytes()
+                                if self.vad.is_speech(frame_bytes, 16000):
+                                    speech_frames += 1
+                                    has_speech = True
+                        
+                        # Calculate speech percentage for logging
+                        speech_percentage = (speech_frames / total_frames * 100) if total_frames > 0 else 0
+                        
+                        if not has_speech:
+                            logger.debug(f"🔇 [VAD] No speech detected ({speech_frames}/{total_frames} frames, {speech_percentage:.1f}%) - skipping transmission to Nova Sonic")
+                            continue  # Skip sending this audio chunk to Nova Sonic
+                        else:
+                            logger.debug(f"🎤 [VAD] Speech detected ({speech_frames}/{total_frames} frames, {speech_percentage:.1f}%) - sending audio chunk to Nova Sonic")
+                    else:
+                        # VAD disabled - send all audio to Nova Sonic
+                        logger.debug(f"🎵 [NO-FILTER] Sending all audio to Nova Sonic (VAD disabled)")
+                        
+                    # Audio quality monitoring (for clipping detection)
                     if clipping_percent > 10:
                         logger.error(f"🔥 [AUDIO] SEVERE CLIPPING detected ({clipping_percent:.1f}%) - audio will be distorted!")
                     elif clipping_percent > 1:
                         logger.warning(f"⚠️ [AUDIO] Clipping detected ({clipping_percent:.1f}%) - reducing microphone gain recommended")
                     
                 except Exception as e:
-                    logger.debug(f"🎵➡️ [AUDIO] Chunk #{self.audio_chunk_counter}: analysis failed - {e}")
+                    logger.debug(f"🎵➡️ [AUDIO] Chunk #{self.audio_chunk_counter}: Audio analysis failed - {e}")
+                    # On analysis failure, fall back to sending the audio (fail-safe behavior)
+                    logger.debug(f"🔄 [AUDIO] Falling back to sending audio due to analysis failure")
                 
                 # Send the event (only if it passed quality control)
                 await self.send_raw_event(audio_event)
