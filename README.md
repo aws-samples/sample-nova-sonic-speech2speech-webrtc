@@ -607,7 +607,7 @@ The example shows in-vehicle voice assistance with real-time vision AI processin
 cd python-webrtc-server
 conda activate nova-s2s-webrtc
 export ENABLE_PHONE_DETECTION=true
-python webrtc_server.py --webrtc-role Viewer --agent mcp
+python webrtc_server.py --webrtc-role Viewer
 ```
 
 **KVS Test Page Configuration:**
