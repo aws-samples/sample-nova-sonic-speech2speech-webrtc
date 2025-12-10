@@ -569,6 +569,8 @@ export VAD_AGGRESSIVENESS=3
 🎵 [NO-FILTER] Sending all audio to Nova Sonic (VAD disabled)
 ```
 
+## WebRTC Audio Data Format Adaption
+WebRTC protocol has defined specific audio and video format standards. When transceiving audio data through WebRTC connection, we need some adaption work. Please refer to the [documentation](./docs/AudioDataAdaption.md).
 
 
 
