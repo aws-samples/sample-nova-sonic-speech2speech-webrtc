@@ -82,7 +82,7 @@ class S2sSessionManager:
         if self.vad_enabled and WEBRTCVAD_AVAILABLE:
             # WebRTCVAD configuration
             self.vad = webrtcvad.Vad()
-            self.vad_aggressiveness = int(os.getenv('VAD_AGGRESSIVENESS', '2'))  # 0-3, 2 = moderate
+            self.vad_aggressiveness = int(os.getenv('VAD_AGGRESSIVENESS', '0'))  # 0-3, 2 = moderate
             self.vad.set_mode(self.vad_aggressiveness)
             logger.info(f"[S2sSessionManager] ✅ WebRTCVAD enabled - Aggressiveness level: {self.vad_aggressiveness} (set VAD_AGGRESSIVENESS 0-3 to change)")
             
