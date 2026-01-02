@@ -381,7 +381,9 @@ class KVSWebRTCMaster:
                 logger.info(f"🎉 [KVSWebRTCMaster] Client {client_id} peer connection CONNECTED successfully!")
             elif state in ['disconnected', 'failed', 'closed']:
                 logger.warning(f"⚠️ [KVSWebRTCMaster] Client {client_id} peer connection {state.upper()}")
-                await self._handle_client_disconnection(client_id)
+                # Only handle disconnection if client still exists in our tracking
+                if client_id in self.peer_connections:
+                    await self._handle_client_disconnection(client_id)
                 
         @pc.on('iceconnectionstatechange')
         async def on_iceconnectionstatechange():
@@ -392,12 +394,18 @@ class KVSWebRTCMaster:
                 logger.info(f"✅ [KVSWebRTCMaster] {client_id} ICE connection established!")
             elif ice_state == 'failed':
                 logger.error(f"❌ [KVSWebRTCMaster] {client_id} ICE connection FAILED!")
+                # Only handle disconnection if client still exists in our tracking
+                if client_id in self.peer_connections:
+                    await self._handle_client_disconnection(client_id)
             
         @pc.on('track')
         def on_track(track):
-            logger.info(f"🎥🎤 [KVSWebRTCMaster] Received {track.kind} track from {client_id}")
+            logger.info(f"[KVSWebRTCMaster] Received {track.kind} track from {client_id}")
+            logger.info(f"[KVSWebRTCMaster] Track details - Kind: {track.kind}, ID: {getattr(track, 'id', 'unknown')}, ReadyState: {getattr(track, 'readyState', 'unknown')}")
             
             if track.kind == 'audio':
+                logger.info(f"[KVSWebRTCMaster] AUDIO TRACK RECEIVED from {client_id} - this confirms JavaScript is sending audio!")
+                
                 # Start media recording for test clients
                 if client_id.startswith('test-viewer-'):
                     logger.info(f"🎬 [KVSWebRTCMaster] Starting media recording for test client {client_id}")
@@ -418,14 +426,17 @@ class KVSWebRTCMaster:
                         MediaBlackhole().addTrack(track)
                 
             elif track.kind == 'video':
+                logger.info(f"[KVSWebRTCMaster] VIDEO TRACK RECEIVED from {client_id}")
                 # Handle video track for test clients
                 if client_id.startswith('test-viewer-'):
-                    logger.info(f"📹 [KVSWebRTCMaster] Recording video track for test client {client_id}")
+                    logger.info(f"[KVSWebRTCMaster] Recording video track for test client {client_id}")
                     asyncio.create_task(self._handle_media_recording_track(client_id, track, 'video'))
                 else:
-                    logger.info(f"📹 [KVSWebRTCMaster] Video track received from {client_id} (not recording)")
+                    logger.info(f"[KVSWebRTCMaster] Video track received from {client_id} (not recording)")
                     # Use MediaBlackhole to consume the track (required by aiortc)
                     MediaBlackhole().addTrack(track)
+            else:
+                logger.warning(f"[KVSWebRTCMaster] Unknown track kind '{track.kind}' from {client_id}")
                 
         @pc.on('datachannel')
         def on_datachannel(channel):
@@ -454,43 +465,84 @@ class KVSWebRTCMaster:
         logger.info(f"[KVSWebRTCMaster] Handling disconnection for {client_id}")
         
         # Remove audio track from processor (or custom handler)
-        if hasattr(self, '_loopback_processor') and self._loopback_processor:
-            # Loopback mode cleanup
-            await self._loopback_processor.remove_audio_track(client_id)
-        else:
-            # Default processor cleanup
-            await self.audio_processor.remove_audio_track(client_id)
+        try:
+            if hasattr(self, '_loopback_processor') and self._loopback_processor:
+                # Loopback mode cleanup
+                await self._loopback_processor.remove_audio_track(client_id)
+            else:
+                # Default processor cleanup
+                await self.audio_processor.remove_audio_track(client_id)
+        except Exception as e:
+            logger.warning(f"[KVSWebRTCMaster] Error removing audio track for {client_id}: {e}")
         
-        # Clean up peer connection
+        # Clean up peer connection with proper future handling
         if client_id in self.peer_connections:
-            pc = self.peer_connections[client_id]
-            await pc.close()
-            del self.peer_connections[client_id]
+            try:
+                pc = self.peer_connections[client_id]
+                # Cancel any pending operations before closing
+                try:
+                    await asyncio.wait_for(pc.close(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    logger.warning(f"[KVSWebRTCMaster] Peer connection close timeout for {client_id}")
+                except Exception as close_error:
+                    logger.warning(f"[KVSWebRTCMaster] Peer connection close error for {client_id}: {close_error}")
+                del self.peer_connections[client_id]
+                logger.debug(f"[KVSWebRTCMaster] Peer connection cleaned up for {client_id}")
+            except Exception as e:
+                logger.warning(f"[KVSWebRTCMaster] Error cleaning up peer connection for {client_id}: {e}")
+                # Ensure it's removed from the dict even if close() fails
+                if client_id in self.peer_connections:
+                    del self.peer_connections[client_id]
             
         # Clean up session manager
         if client_id in self.session_managers:
-            session_manager = self.session_managers[client_id]
-            await session_manager.close()
-            del self.session_managers[client_id]
+            try:
+                session_manager = self.session_managers[client_id]
+                await session_manager.close()
+                del self.session_managers[client_id]
+                logger.debug(f"[KVSWebRTCMaster] Session manager cleaned up for {client_id}")
+            except Exception as e:
+                logger.warning(f"[KVSWebRTCMaster] Error cleaning up session manager for {client_id}: {e}")
+                # Ensure it's removed from the dict even if close() fails
+                if client_id in self.session_managers:
+                    del self.session_managers[client_id]
             
         # Clean up audio output track
         if client_id in self.audio_output_tracks:
-            audio_track = self.audio_output_tracks[client_id]
-            audio_track.stop()
-            del self.audio_output_tracks[client_id]
+            try:
+                audio_track = self.audio_output_tracks[client_id]
+                audio_track.stop()
+                del self.audio_output_tracks[client_id]
+                logger.debug(f"[KVSWebRTCMaster] Audio output track cleaned up for {client_id}")
+            except Exception as e:
+                logger.warning(f"[KVSWebRTCMaster] Error cleaning up audio output track for {client_id}: {e}")
+                # Ensure it's removed from the dict even if stop() fails
+                if client_id in self.audio_output_tracks:
+                    del self.audio_output_tracks[client_id]
             
         # Clean up media recording for test clients
         if client_id.startswith('test-viewer-'):
-            logger.info(f"🎬 [KVSWebRTCMaster] Stopping media recording for test client {client_id}")
-            await self.media_recorder.stop_recording(client_id)
-            self.media_recorder.cleanup_client(client_id)
+            try:
+                logger.info(f"🎬 [KVSWebRTCMaster] Stopping media recording for test client {client_id}")
+                await self.media_recorder.stop_recording(client_id)
+                self.media_recorder.cleanup_client(client_id)
+            except Exception as e:
+                logger.warning(f"[KVSWebRTCMaster] Error cleaning up media recording for {client_id}: {e}")
         
         # Remove data channel from event bridge
-        self.event_bridge.remove_data_channel(client_id)
+        try:
+            self.event_bridge.remove_data_channel(client_id)
+        except Exception as e:
+            logger.warning(f"[KVSWebRTCMaster] Error removing data channel for {client_id}: {e}")
             
         # Notify disconnection
-        if self.on_client_disconnected:
-            self.on_client_disconnected(client_id)
+        try:
+            if self.on_client_disconnected:
+                self.on_client_disconnected(client_id)
+        except Exception as e:
+            logger.warning(f"[KVSWebRTCMaster] Error in disconnection callback for {client_id}: {e}")
+            
+        logger.info(f"[KVSWebRTCMaster] Disconnection handling completed for {client_id}")
             
     async def _handle_processed_audio(self, client_id: str, audio_packet: dict):
         """
@@ -501,7 +553,7 @@ class KVSWebRTCMaster:
             audio_packet: Processed audio data packet with metadata
         """
         try:
-            logger.debug(f"🎵 [KVSWebRTCMaster] Received processed audio from {client_id}: {audio_packet['size_bytes']} bytes")
+            logger.info(f"[KVSWebRTCMaster] PROCESSED AUDIO from {client_id}: {audio_packet['size_bytes']} bytes - sending to Nova Sonic!")
             
             # Get session manager for this client
             session_manager = self.session_managers.get(client_id)
@@ -531,7 +583,8 @@ class KVSWebRTCMaster:
             if session_prompt is None or session_content is None:
                 logger.warning(f"⚠️ [KVSWebRTCMaster] Using fallback names for {client_id}: prompt='{prompt_name}', content='{content_name}' (session manager values are None)")
             
-            logger.debug(f"📨 [KVSWebRTCMaster] Processing audio for S2S: prompt='{prompt_name}', content='{content_name}', data_size={len(base64_audio)} chars")
+            logger.info(f"[KVSWebRTCMaster] SENDING TO NOVA SONIC: prompt='{prompt_name}', "
+                        f"content='{content_name}', data_size={len(base64_audio)} chars")
             
             # Send audio to S2sSessionManager
             session_manager.add_audio_chunk(
@@ -540,8 +593,11 @@ class KVSWebRTCMaster:
                 audio_data=base64_audio
             )
             
+            logger.info(f"[KVSWebRTCMaster] Audio chunk queued for Nova Sonic processing")
+            
             # Notify callback if set
             if self.on_audio_received:
+                logger.debug(f"[KVSWebRTCMaster] Notifying audio received callback for {client_id}")
                 self.on_audio_received(client_id, audio_packet)
                 
         except Exception as e:
@@ -634,7 +690,7 @@ class KVSWebRTCMaster:
             await self.performance_monitor.start_monitoring(interval=1.0)
             
             # Connect to signaling channel
-            logger.info("📡 [KVSWebRTCMaster] Connecting to signaling channel...")
+            logger.info(f"[KVSWebRTCMaster] Connecting to signaling channel: {self.channel_name}")
             await self._connect_signaling()
             
         except Exception as e:
@@ -649,10 +705,10 @@ class KVSWebRTCMaster:
         
         while self.is_running:
             try:
-                logger.info("🔌 [KVSWebRTCMaster] Establishing WebSocket connection...")
+                logger.info(f"[KVSWebRTCMaster] Establishing WebSocket connection to {self.channel_name}...")
                 async with websockets.connect(wss_url) as websocket:
                     self.websocket = websocket
-                    logger.info("✅ [KVSWebRTCMaster] Connected to signaling channel successfully!")
+                    logger.info(f"[KVSWebRTCMaster] Connected to signaling channel '{self.channel_name}' successfully!")
                     logger.info("👂 [KVSWebRTCMaster] Listening for signaling messages...")
                     
                     async for message in websocket:
@@ -686,16 +742,23 @@ class KVSWebRTCMaster:
                             
             except websockets.ConnectionClosed:
                 if self.is_running:
-                    logger.warning("⚠️ [KVSWebRTCMaster] Signaling connection closed, reconnecting...")
+                    logger.warning(f"⚠️ [KVSWebRTCMaster] Signaling connection to '{self.channel_name}' closed, reconnecting...")
                     wss_url = self._create_wss_url()
                     await asyncio.sleep(1)  # Brief delay before reconnecting
                 else:
-                    logger.info("✅ [KVSWebRTCMaster] Signaling connection closed as expected")
+                    logger.info(f"✅ [KVSWebRTCMaster] Signaling connection to '{self.channel_name}' closed as expected")
                     break
+            except asyncio.CancelledError:
+                logger.info(f"🛑 [KVSWebRTCMaster] Signaling task cancelled for '{self.channel_name}'")
+                break
             except Exception as e:
-                logger.error(f"❌ [KVSWebRTCMaster] Signaling error: {e}")
+                # Suppress concurrent.futures errors during shutdown
+                if "InvalidStateError" in str(e) or "CANCELLED" in str(e):
+                    logger.debug(f"🔄 [KVSWebRTCMaster] Ignoring future cancellation error during shutdown: {e}")
+                else:
+                    logger.error(f"❌ [KVSWebRTCMaster] Signaling error on '{self.channel_name}': {e}")
                 if self.is_running:
-                    logger.info("🔄 [KVSWebRTCMaster] Retrying connection in 5 seconds...")
+                    logger.info(f"🔄 [KVSWebRTCMaster] Retrying connection to '{self.channel_name}' in 5 seconds...")
                     await asyncio.sleep(5)  # Longer delay on error
                     
     async def stop(self):
