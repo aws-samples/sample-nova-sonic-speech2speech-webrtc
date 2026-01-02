@@ -255,7 +255,10 @@ class S2sSessionManager:
         try:
             """Send a raw event to the Bedrock stream."""
             # Add logging to see if events are reaching the session manager
-            # Removed verbose event debugging
+            if "event" in event_data:
+                event_type = list(event_data["event"].keys())[0]
+                if event_type != "audioInput":  # Don't spam with audio events
+                    logger.info(f"[S2sSessionManager] Sending {event_type} event to Nova Sonic")
             
             if not self.stream or not self.is_active:
                 logger.error(f"❌ [S2sSessionManager] Stream not initialized or closed - stream: {self.stream}, active: {self.is_active}")
@@ -281,11 +284,20 @@ class S2sSessionManager:
             event_json = json.dumps(event_data)
             # Audio data now flows through WebRTC media channel, not as audioInput events
             if "audioInput" not in event_data["event"]:
-                logger.debug(event_json)
+                logger.debug(f"[S2sSessionManager] Event JSON: {event_json}")
+            
             event = InvokeModelWithBidirectionalStreamInputChunk(
                 value=BidirectionalInputPayloadPart(bytes_=event_json.encode('utf-8'))
             )
             await self.stream.input_stream.send(event)
+            
+            # Log successful send
+            if "event" in event_data:
+                event_type = list(event_data["event"].keys())[0]
+                if event_type == "audioInput":
+                    logger.debug(f"[S2sSessionManager] Audio chunk sent to Nova Sonic")
+                else:
+                    logger.info(f"[S2sSessionManager] {event_type} event sent to Nova Sonic")
 
             # Close session
             if "sessionEnd" in event_data["event"]:
@@ -434,27 +446,43 @@ class S2sSessionManager:
 
     def add_audio_chunk(self, prompt_name, content_name, audio_data):
         """Add an audio chunk to the queue."""
+        # Only add audio if session is properly initialized
+        if not self.is_active:
+            logger.warning(f"⚠️ [S2sSessionManager] Skipping audio chunk - session not active")
+            return
+            
+        if not self.prompt_name or not self.audio_content_name:
+            logger.warning(f"⚠️ [S2sSessionManager] Skipping audio chunk - session not initialized (prompt: {self.prompt_name}, content: {self.audio_content_name})")
+            return
+            
         self.audio_input_queue.put_nowait({
             'prompt_name': prompt_name,
             'content_name': content_name,
             'audio_bytes': audio_data
         })
+        logger.debug(f"✅ [S2sSessionManager] Audio chunk queued for processing")
     
     async def _process_responses(self):
         """Process incoming responses from Bedrock."""
         debug_print("🎧 [S2sSessionManager] Starting _process_responses loop")
-        logger.debug("🎧 [S2sSessionManager] Starting _process_responses loop")
+        logger.info("🎧 [S2sSessionManager] Starting _process_responses loop - waiting for Nova Sonic responses...")
         
+        response_count = 0
         while self.is_active:
             try:            
-                output = await self.stream.await_output()
+                logger.debug(f"🔄 [S2sSessionManager] Waiting for Nova Sonic response #{response_count + 1}...")
+                output = await asyncio.wait_for(self.stream.await_output(), timeout=30.0)  # Add timeout
                 result = await output[1].receive()
+                response_count += 1
+                logger.info(f"📥 [S2sSessionManager] Received response #{response_count} from Nova Sonic")
                 
                 if result.value and result.value.bytes_:
                     response_data = result.value.bytes_.decode('utf-8')
+                    logger.debug(f"📄 [S2sSessionManager] Raw response data: {response_data[:200]}...")
                     
                     json_data = json.loads(response_data)
                     json_data["timestamp"] = int(time.time() * 1000)  # Milliseconds since epoch
+                    logger.debug(f"📋 [S2sSessionManager] Parsed JSON keys: {list(json_data.keys())}")
                     
                     # Debug log for events
                     if 'event' in json_data:
@@ -545,20 +573,37 @@ class S2sSessionManager:
                     # Put the response in the output queue for forwarding to the frontend
                     await self.output_queue.put(json_data)
 
-
+            except asyncio.TimeoutError:
+                logger.warning(f"[S2sSessionManager] No response from Nova Sonic within 30 seconds")
+                logger.warning(f"[S2sSessionManager] Total responses so far: {response_count}")
+                continue  # Keep trying
             except json.JSONDecodeError as ex:
-                logger.error(f"❌ [NOVA] JSON decode error: {str(ex)}")
+                logger.error(f"[NOVA] JSON decode error: {str(ex)}")
+                logger.error(f"[NOVA] Raw response causing error: {response_data}")
                 await self.output_queue.put({"raw_data": response_data})
             except StopAsyncIteration:
-                logger.info(f"🔚 [NOVA] Stream ended")
+                logger.info(f"🔚 [NOVA] Stream ended after {response_count} responses")
                 break
             except Exception as e:
                 if "ValidationException" in str(e):
-                    logger.error(f"❌ [NOVA] Validation error: {str(e)}")
+                    logger.error(f"[NOVA] Validation error: {str(e)}")
+                    logger.error(f"[NOVA] This usually means invalid event format or missing required fields")
+                elif "AccessDeniedException" in str(e):
+                    logger.error(f"[NOVA] Access denied: {str(e)}")
+                    logger.error(f"[NOVA] Check if Nova Sonic model is available in your region")
+                elif "ThrottlingException" in str(e):
+                    logger.error(f"[NOVA] Throttling: {str(e)}")
+                    logger.error(f"[NOVA] Too many requests - wait before retrying")
                 else:
-                    logger.error(f"❌ [NOVA] Unexpected error: {str(e)}")
+                    logger.error(f"[NOVA] Unexpected error: {str(e)}")
+                    import traceback
+                    logger.error(f"[NOVA] Error traceback: {traceback.format_exc()}")
                 break
 
+        logger.info(f"🔚 [NOVA] Response processing ended - total responses received: {response_count}")
+        if response_count == 0:
+            logger.error(f"[NOVA] NO RESPONSES RECEIVED - Check Nova Sonic model availability and session initialization")
+        
         self.is_active = False
         self.close()
 

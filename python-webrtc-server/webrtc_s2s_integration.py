@@ -217,8 +217,14 @@ class WebRTCS2SIntegration:
             task = asyncio.create_task(self._process_session_responses(client_id, session_manager))
             self.session_tasks[client_id] = task
             
-            # NOTE: Do not auto-start S2S session - let client drive session setup via data channel events
-            logger.info(f"✅ [WebRTCS2SIntegration] Session manager ready for {client_id} - waiting for client events")
+            # Auto-initialize session with default values to avoid waiting for client events
+            logger.debug(f"[WebRTCS2SIntegration] Auto-initializing S2S session for {client_id}...")
+            await self._auto_initialize_session(client_id, session_manager)
+            
+            logger.info(f"[WebRTCS2SIntegration] Session manager ready for {client_id} - session auto-initialized, waiting for Nova Sonic responses...")
+            
+            # Check if we're getting any responses from Nova Sonic after a few seconds
+            # asyncio.create_task(self._check_nova_responses(client_id, session_manager))
             
             # Add connection health check
             asyncio.create_task(self._monitor_client_health(client_id))
@@ -259,19 +265,8 @@ class WebRTCS2SIntegration:
             if client_id in self.client_sessions:
                 session_manager = self.client_sessions[client_id]
                 
-                # Send session end event
-                try:
-                    session_end_event = S2sEvent.session_end()
-                    await session_manager.send_raw_event(session_end_event)
-                    
-                    # Wait a bit for Nova Sonic to send completionEnd event
-                    logger.debug(f"[WebRTCS2SIntegration] Waiting for final events from Nova Sonic for {client_id}")
-                    await asyncio.sleep(2.0)  # Wait 2 seconds for completionEnd
-                    
-                except Exception as e:
-                    logger.warning(f"[WebRTCS2SIntegration] Error sending session end for {client_id}: {e}")
-                    
-                # Close session
+                # Just close the session without sending end events
+                # The session manager will handle proper cleanup
                 await session_manager.close()
                 del self.client_sessions[client_id]
                 
@@ -550,6 +545,80 @@ class WebRTCS2SIntegration:
         except Exception as e:
             logger.error(f"[WebRTCS2SIntegration] Error handling session control for {client_id}: {e}")
             
+    async def _auto_initialize_session(self, client_id: str, session_manager: S2sSessionManager):
+        """
+        Auto-initialize S2S session with default events
+        Without auto-initialization, the system would need to wait for the client (frontend) to send these initialization events.
+
+        Args:
+            client_id: Client identifier
+            session_manager: S2S session manager
+        """
+        try:
+            logger.info(f"[WebRTCS2SIntegration] Starting auto-initialization for {client_id}")
+            
+            # Use unique prompt name to avoid duplicates
+            import uuid
+            unique_prompt = f"webrtc_prompt_{uuid.uuid4().hex[:8]}"
+            unique_audio_content = f"audio_input_{uuid.uuid4().hex[:8]}"
+            
+            logger.info(f"[WebRTCS2SIntegration] Using unique prompt: {unique_prompt}")
+            
+            # Send session start event
+            session_start_event = S2sEvent.session_start()
+            await session_manager.send_raw_event(session_start_event)
+            logger.info(f"[WebRTCS2SIntegration] Sent sessionStart for {client_id}")
+            
+            # Wait for Nova Sonic to acknowledge
+            await asyncio.sleep(0.2)
+            
+            # Send prompt start event with unique name
+            prompt_start_event = S2sEvent.prompt_start(unique_prompt)
+            await session_manager.send_raw_event(prompt_start_event)
+            logger.info(f"[WebRTCS2SIntegration] Sent promptStart with unique name for {client_id}")
+            
+            # Wait for Nova Sonic to process
+            await asyncio.sleep(0.2)
+            
+            # Send system prompt content
+            system_content_name = f"system_content_{uuid.uuid4().hex[:8]}"
+            content_start_event = S2sEvent.content_start_text(unique_prompt, system_content_name)
+            await session_manager.send_raw_event(content_start_event)
+            
+            # Default system prompt
+            system_prompt = "You are a helpful AI assistant. Respond naturally and conversationally to user questions."
+            text_input_event = S2sEvent.text_input(unique_prompt, system_content_name, system_prompt)
+            await session_manager.send_raw_event(text_input_event)
+            
+            content_end_event = S2sEvent.content_end(unique_prompt, system_content_name)
+            await session_manager.send_raw_event(content_end_event)
+            logger.info(f"[WebRTCS2SIntegration] Sent system prompt for {client_id}")
+            
+            # Wait for system prompt to be processed
+            await asyncio.sleep(0.3)
+            
+            # Start audio content with unique name
+            audio_start_event = S2sEvent.content_start_audio(unique_prompt, unique_audio_content)
+            await session_manager.send_raw_event(audio_start_event)
+            logger.info(f"[WebRTCS2SIntegration] Sent audio contentStart for {client_id}")
+            
+            # Update session manager with unique names
+            session_manager.prompt_name = unique_prompt
+            session_manager.audio_content_name = unique_audio_content
+            
+            # Update WebRTC master audio config with unique names
+            self.webrtc_master.set_audio_config(unique_prompt, unique_audio_content)
+            
+            # Wait for Nova Sonic to process the initialization
+            await asyncio.sleep(0.5)
+            
+            logger.info(f"[WebRTCS2SIntegration] Auto-initialization complete for {client_id} - Nova Sonic should be ready for audio")
+            
+        except Exception as e:
+            logger.error(f"[WebRTCS2SIntegration] Error auto-initializing session for {client_id}: {e}")
+            import traceback
+            logger.error(f"[WebRTCS2SIntegration] Traceback: {traceback.format_exc()}")
+    
     async def _monitor_client_health(self, client_id: str):
         """Monitor client connection health"""
         try:
@@ -565,6 +634,32 @@ class WebRTCS2SIntegration:
                     
         except Exception as e:
             logger.error(f"❌ [WebRTCS2SIntegration] Error monitoring client health for {client_id}: {e}")
+    
+    async def _check_nova_responses(self, client_id: str, session_manager: S2sSessionManager):
+        """Check if Nova Sonic is responding after initialization"""
+        try:
+            await asyncio.sleep(5.0)  # Wait 5 seconds after initialization
+            
+            if client_id in self.client_sessions:
+                # Check if we've received any responses
+                queue_size = session_manager.output_queue.qsize()
+                logger.info(f"[WebRTCS2SIntegration] Nova Sonic response check for {client_id}: {queue_size} responses in queue")
+                
+                if queue_size == 0:
+                    logger.warning(f"[WebRTCS2SIntegration] NO RESPONSES from Nova Sonic for {client_id} after 5 seconds")
+                    logger.warning(f"[WebRTCS2SIntegration] Possible issues: 1) Model not available in region, 2) Invalid session setup, 3) Audio format issues")
+                    
+                    # Check session state
+                    session_state = session_manager.get_session_state()
+                    logger.info(f"🔍 [WebRTCS2SIntegration] Session state: {session_state}")
+                    
+                    # Check if stream is still active
+                    logger.info(f"[WebRTCS2SIntegration] Stream active: {session_manager.is_active}")
+                else:
+                    logger.info(f"[WebRTCS2SIntegration] Nova Sonic is responding normally for {client_id}")
+                    
+        except Exception as e:
+            logger.error(f"[WebRTCS2SIntegration] Error checking Nova responses for {client_id}: {e}")
     
     async def _handle_loopback_audio_received(self, client_id: str, track):
         """Handle audio received in loopback mode"""
