@@ -413,7 +413,7 @@ AUDIO_DEBUG_SAVE=false
 python webrtc_server.py \
     --region us-east-1 \
     --channel-name nova-s2s-webrtc-test \
-    --model-id amazon.nova-sonic-v1:0 \
+    --model-id amazon.nova-2-sonic-v1:0 \
     --loopback
 ```
 
@@ -571,7 +571,7 @@ const credentials = {
             "Action": [
                 "bedrock:InvokeModelWithBidirectionalStream"
             ],
-            "Resource": "arn:aws:bedrock:*::foundation-model/amazon.nova-sonic-v1:0"
+            "Resource": "arn:aws:bedrock:*::foundation-model/amazon.nova-2-sonic-v1:0"
         }
     ]
 }

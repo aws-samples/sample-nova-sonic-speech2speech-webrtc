@@ -164,8 +164,8 @@ async def main():
                        help='AWS region (default: ap-northeast-1)')
     parser.add_argument('--channel-name', default=os.environ.get('KVS_CHANNEL_NAME', 'nova-s2s-webrtc-test'),
                        help='KVS channel name (default: nova-s2s-webrtc-test)')
-    parser.add_argument('--model-id', default='amazon.nova-sonic-v1:0',
-                       help='Bedrock model ID (default: amazon.nova-sonic-v1:0)')
+    parser.add_argument('--model-id', default='amazon.nova-2-sonic-v1:0',
+                       help='Bedrock model ID (default: amazon.nova-2-sonic-v1:0)')
     parser.add_argument('--webrtc-role', default='Master', choices=['Master', 'Viewer'],
                        help='WebRTC role: Master or Viewer (default: Master)')
     parser.add_argument('--agent', type=str, help='Agent intergation "mcp" or "strands".') # argument to choose agent, value = "mcp" | "strands"

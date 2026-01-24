@@ -44,7 +44,7 @@ def debug_print(message):
 class S2sSessionManager:
     """Manages bidirectional streaming with AWS Bedrock using asyncio"""
     
-    def __init__(self, region, model_id='amazon.nova-sonic-v1:0', mcp_client=None, mcp_iot_client=None, strands_agent=None):
+    def __init__(self, region, model_id='amazon.nova-2-sonic-v1:0', mcp_client=None, mcp_iot_client=None, strands_agent=None):
         """Initialize the stream manager."""
         self.model_id = model_id
         self.region = region
@@ -82,7 +82,7 @@ class S2sSessionManager:
         if self.vad_enabled and WEBRTCVAD_AVAILABLE:
             # WebRTCVAD configuration
             self.vad = webrtcvad.Vad()
-            self.vad_aggressiveness = int(os.getenv('VAD_AGGRESSIVENESS', '2'))  # 0-3, 2 = moderate
+            self.vad_aggressiveness = int(os.getenv('VAD_AGGRESSIVENESS', '0'))  # 0-3, 2 = moderate
             self.vad.set_mode(self.vad_aggressiveness)
             logger.info(f"[S2sSessionManager] ✅ WebRTCVAD enabled - Aggressiveness level: {self.vad_aggressiveness} (set VAD_AGGRESSIVENESS 0-3 to change)")
             
