@@ -60,7 +60,7 @@ LOGS_DIR="$PROJECT_ROOT/logs"
 # Default configuration
 DEFAULT_REGION="ap-northeast-1"
 DEFAULT_CHANNEL="nova-s2s-webrtc-test"
-DEFAULT_MODEL="amazon.nova-sonic-v1:0"
+DEFAULT_MODEL="amazon.nova-2-sonic-v1:0"
 
 # Function to print colored output
 print_status() {

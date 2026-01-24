@@ -20,7 +20,7 @@ class WebRTCS2SIntegration:
     Manages session lifecycle, audio routing, and event handling
     """
     
-    def __init__(self, region: str, model_id: str = 'amazon.nova-sonic-v1:0', 
+    def __init__(self, region: str, model_id: str = 'amazon.nova-2-sonic-v1:0', 
                  mcp_client=None, mcp_iot_client=None, strands_agent=None, loopback_mode: bool = False):
         """
         Initialize WebRTC S2S integration

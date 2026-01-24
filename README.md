@@ -212,7 +212,7 @@ AWS_SECRET_ACCESS_KEY=your_secret_key_here
 KVS_CHANNEL_NAME=nova-s2s-webrtc-test
 
 # Bedrock Configuration
-BEDROCK_MODEL_ID=amazon.nova-sonic-v1:0
+BEDROCK_MODEL_ID=amazon.nova-2-sonic-v1:0
 
 # Logging Configuration
 LOGLEVEL=INFO

@@ -21,7 +21,7 @@ class WebRTCS2SViewerIntegration:
     Manages session lifecycle, audio routing, and event handling in Viewer mode
     """
     
-    def __init__(self, region: str, model_id: str = 'amazon.nova-sonic-v1:0', 
+    def __init__(self, region: str, model_id: str = 'amazon.nova-2-sonic-v1:0', 
                  mcp_client=None, mcp_iot_client=None, strands_agent=None):
         """
         Initialize WebRTC S2S Viewer integration
