@@ -1,6 +1,6 @@
 # Nova S2S WebRTC Workshop
 
-A comprehensive Speech-to-Speech (S2S) WebRTC solution integrating AWS Bedrock Nova Sonic, Amazon Kinesis Video Streams with WebRTC, and real-time audio/video processing.
+A comprehensive Speech-to-Speech (S2S) WebRTC solution integrating AWS Bedrock Nova 2 Sonic, Amazon Kinesis Video Streams with WebRTC, and real-time audio/video processing.
 
 The sample solution architecture:
 ![solution architecture](./docs/NovaSonic_WebRTC-architecture.png)
