@@ -27,6 +27,7 @@ wheels/
 MANIFEST
 # YOLO
 *.pt
+hzh*
 
 # Virtual environments
 .venv/
@@ -57,3 +58,17 @@ yarn-error.log*
 # Build outputs
 build/
 dist/
+
+# AgentCore Runtime 部署相关
+AgentCore/.config
+AgentCore/.bedrock_agentcore.yaml
+AgentCore/.bedrock_agentcore/
+AgentCore/toDelete_*.py
+.agentcore_arn
+.agentcore_runtime_id
+agentcore_deployment_info.json
+nova-webrtc-source.zip
+
+# Python webrtc-server 中的 AgentCore 配置
+python-webrtc-server/.bedrock_agentcore.yaml
+python-webrtc-server/.bedrock_agentcore/

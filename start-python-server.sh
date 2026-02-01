@@ -224,21 +224,8 @@ setup_conda_environment() {
         # Check if conda environment exists
         if conda env list | grep -q "^$ENV_NAME "; then
             print_status "Conda environment '$ENV_NAME' already exists"
-            print_status "Updating environment from environment.yml..."
-            
-            # Update with platform-specific handling
-            case "$OS" in
-                "windows")
-                    conda env update -n "$ENV_NAME" -f environment.yml --prune || {
-                        print_warning "Environment update failed, trying to recreate..."
-                        conda env remove -n "$ENV_NAME" -y
-                        conda env create -f environment.yml
-                    }
-                    ;;
-                *)
-                    conda env update -n "$ENV_NAME" -f environment.yml --prune
-                    ;;
-            esac
+            print_warning "Skipping environment update to avoid conda segfault issue"
+            print_status "If you need to update, run: conda env remove -n $ENV_NAME -y && conda env create -f environment.yml"
         else
             print_status "Creating conda environment from environment.yml..."
             conda env create -f environment.yml

@@ -14,6 +14,9 @@ from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver, SigV4
 from smithy_aws_core.identity.environment import EnvironmentCredentialsResolver
 from integration import inline_agent, bedrock_knowledge_bases as kb
 
+# Get logger for this module FIRST (before using it)
+logger = logging.getLogger(__name__)
+
 # Import webrtcvad with error handling
 try:
     import webrtcvad
@@ -26,8 +29,6 @@ except ImportError as e:
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
-
-# Get logger for this module
 logger = logging.getLogger(__name__)
 
 DEBUG = True

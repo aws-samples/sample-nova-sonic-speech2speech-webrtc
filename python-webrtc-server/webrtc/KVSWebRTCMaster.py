@@ -397,6 +397,36 @@ class KVSWebRTCMaster:
                 # Only handle disconnection if client still exists in our tracking
                 if client_id in self.peer_connections:
                     await self._handle_client_disconnection(client_id)
+        
+        @pc.on('icegatheringstatechange')
+        async def on_icegatheringstatechange():
+            gathering_state = pc.iceGatheringState
+            logger.debug(f"🔍 [KVSWebRTCMaster] {client_id} ICE gathering state: {gathering_state}")
+            
+            if gathering_state == 'complete':
+                logger.info(f"✅ [KVSWebRTCMaster] {client_id} ICE gathering complete")
+        
+        @pc.on('icecandidate')
+        async def on_icecandidate(event):
+            """Handle ICE candidate generation and send to viewer"""
+            if event.candidate and self.is_running and self.websocket and not self.websocket.closed:
+                try:
+                    logger.debug(f"🧊 [KVSWebRTCMaster] Sending ICE candidate to {client_id}: {event.candidate.candidate[:50]}...")
+                    
+                    # Encode and send ICE candidate to viewer
+                    candidate_message = self._encode_message('ICE_CANDIDATE', {
+                        'candidate': event.candidate.candidate,
+                        'sdpMid': event.candidate.sdpMid,
+                        'sdpMLineIndex': event.candidate.sdpMLineIndex,
+                    }, client_id)
+                    
+                    await self.websocket.send(candidate_message)
+                    logger.debug(f"✅ [KVSWebRTCMaster] ICE candidate sent to {client_id}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ [KVSWebRTCMaster] Error sending ICE candidate to {client_id}: {e}")
+            elif not event.candidate:
+                logger.debug(f"🏁 [KVSWebRTCMaster] {client_id} ICE candidate gathering finished (null candidate)")
             
         @pc.on('track')
         def on_track(track):

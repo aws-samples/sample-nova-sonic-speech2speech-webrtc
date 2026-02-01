@@ -1,0 +1,118 @@
+# AWS CodeBuild buildspec for Nova S2S WebRTC AgentCore Runtime
+# 构建 ARM64 Docker 镜像并推送到 ECR
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo "🚀 Starting build for NovaSonic-S2S-KVSWebRTC AgentCore Runtime"
+      - echo "Build started on `date`"
+      - echo "AWS Region = $AWS_DEFAULT_REGION"
+      
+      # 获取 Account ID
+      - export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - echo "Account ID = $AWS_ACCOUNT_ID"
+      
+      # 设置变量
+      - export IMAGE_REPO_NAME=novasonic-s2s-webrtc-agentcore
+      - export BASE_IMAGE_REPO=miniconda3-arm64
+      - export IMAGE_TAG=latest
+      - export ECR_REGISTRY=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      - export IMAGE_URI=$ECR_REGISTRY/$IMAGE_REPO_NAME:$IMAGE_TAG
+      - export BASE_IMAGE_URI=$ECR_REGISTRY/$BASE_IMAGE_REPO:latest
+      
+      - echo "📦 Image will be tagged as = $IMAGE_URI"
+      
+      # 登录 ECR
+      - echo "🔐 Logging in to Amazon ECR..."
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+      
+      # 创建 ECR 仓库（如果不存在）
+      - echo "📦 Ensuring ECR repositories exist..."
+      - |
+        aws ecr describe-repositories --repository-names $IMAGE_REPO_NAME --region $AWS_DEFAULT_REGION 2>/dev/null || \
+        aws ecr create-repository \
+          --repository-name $IMAGE_REPO_NAME \
+          --region $AWS_DEFAULT_REGION \
+          --image-scanning-configuration scanOnPush=true \
+          --encryption-configuration encryptionType=AES256
+      - |
+        aws ecr describe-repositories --repository-names $BASE_IMAGE_REPO --region $AWS_DEFAULT_REGION 2>/dev/null || \
+        aws ecr create-repository \
+          --repository-name $BASE_IMAGE_REPO \
+          --region $AWS_DEFAULT_REGION \
+          --image-scanning-configuration scanOnPush=true \
+          --encryption-configuration encryptionType=AES256
+      
+      # 拉取 miniconda3 镜像并推送到 ECR（避免 Docker Hub 速率限制）
+      - echo "🐳 Pulling and caching miniconda3 base image..."
+      - |
+        if ! aws ecr describe-images --repository-name $BASE_IMAGE_REPO --image-ids imageTag=latest --region $AWS_DEFAULT_REGION 2>/dev/null; then
+          echo "📥 Pulling from Docker Hub..."
+          docker pull --platform linux/arm64 continuumio/miniconda3:latest
+          echo "📤 Pushing to ECR..."
+          docker tag continuumio/miniconda3:latest $BASE_IMAGE_URI
+          docker push $BASE_IMAGE_URI
+          echo "✅ Base image cached in ECR"
+        else
+          echo "✅ Base image already in ECR, skipping pull"
+        fi
+      
+      - echo "✅ Pre-build phase completed"
+
+  build:
+    commands:
+      - echo "🏗️  Building Docker image for ARM64 architecture..."
+      - cd python-webrtc-server
+      
+      # 构建 ARM64 镜像，传递 build args
+      - echo "🔨 Building image with tag = $IMAGE_URI"
+      - |
+        docker build \
+          --platform linux/arm64 \
+          --build-arg AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID \
+          --build-arg AWS_REGION=$AWS_DEFAULT_REGION \
+          -t $IMAGE_URI .
+      
+      # 同时打上 latest 标签
+      - docker tag $IMAGE_URI $ECR_REGISTRY/$IMAGE_REPO_NAME:latest
+      
+      - echo "✅ Build phase completed"
+
+  post_build:
+    commands:
+      - echo "📤 Pushing Docker image to ECR..."
+      
+      # 推送镜像
+      - docker push $IMAGE_URI
+      - docker push $ECR_REGISTRY/$IMAGE_REPO_NAME:latest
+      
+      - echo "✅ Image pushed successfully"
+      - echo "   Image URI = $IMAGE_URI"
+      - echo "   Latest URI = $ECR_REGISTRY/$IMAGE_REPO_NAME:latest"
+      
+      # 输出镜像信息到文件（供后续步骤使用）
+      - echo "📝 Writing image definitions..."
+      - |
+        cat > ../imagedefinitions.json <<EOF
+        {
+          "imageUri": "$IMAGE_URI",
+          "imageTag": "$IMAGE_TAG",
+          "repositoryName": "$IMAGE_REPO_NAME",
+          "registryId": "$AWS_ACCOUNT_ID"
+        }
+        EOF
+      
+      - cat ../imagedefinitions.json
+      
+      - echo "🎉 Build completed on `date`"
+
+artifacts:
+  files:
+    - imagedefinitions.json
+  name: BuildArtifact
+
+# 缓存 Docker 层以加速构建
+cache:
+  paths:
+    - '/root/.docker/**/*'
