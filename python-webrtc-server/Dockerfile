@@ -1,9 +1,19 @@
 # Nova S2S WebRTC - AgentCore Runtime Dockerfile
-# 使用 ECR 中缓存的 Miniconda3 镜像（ARM64 架构）
-# 镜像会在 buildspec.yml 的 pre_build 阶段从 Docker Hub 拉取并推送到 ECR
-ARG AWS_ACCOUNT_ID
-ARG AWS_REGION=ap-northeast-1
-FROM --platform=linux/arm64 ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/miniconda3-arm64:latest
+# 使用 AWS Public ECR python:3.12-slim + Miniconda（ARM64 架构）
+FROM --platform=linux/arm64 public.ecr.aws/docker/library/python:3.12-slim
+
+# Install miniconda for conda environment management
+RUN apt-get update && apt-get install -y --no-install-recommends wget && \
+    wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh -O /tmp/miniconda.sh && \
+    bash /tmp/miniconda.sh -b -p /opt/conda && \
+    rm /tmp/miniconda.sh && \
+    apt-get remove -y wget && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+ENV PATH=/opt/conda/bin:$PATH
+
+# Accept conda TOS and configure channels
+RUN conda config --set channel_priority strict && \
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main 2>/dev/null || true && \
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r 2>/dev/null || true
 
 # 设置工作目录
 WORKDIR /app
@@ -30,9 +40,9 @@ RUN echo "📦 Creating conda environment..." && \
     conda env create -f environment.yml && \
     echo "📦 Installing av via conda..." && \
     conda install -n nova-s2s-webrtc -c conda-forge av=11.0.0 -y && \
-    echo "📦 Installing pip dependencies (excluding av and webrtcvad)..." && \
+    echo "📦 Installing pip dependencies (excluding av, webrtcvad, and ultralytics/torch)..." && \
     conda run -n nova-s2s-webrtc pip install --no-cache-dir \
-        $(grep -v "^av[>=<]" requirements.txt | grep -v "^webrtcvad" | grep -v "^#" | grep -v "^$" | tr '\n' ' ') && \
+        $(grep -v "^av[>=<]" requirements.txt | grep -v "^webrtcvad" | grep -v "^ultralytics" | grep -v "^#" | grep -v "^$" | tr '\n' ' ') && \
     echo "📦 Installing FastAPI and Uvicorn for AgentCore..." && \
     conda run -n nova-s2s-webrtc pip install --no-cache-dir \
         fastapi>=0.104.0 \
@@ -66,4 +76,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
 
 # 启动 AgentCore 包装器
 # 使用 exec 形式确保信号正确传递
-CMD ["python", "agentcore_wrapper.py"]
+CMD ["/opt/conda/envs/nova-s2s-webrtc/bin/python", "agentcore_wrapper.py"]

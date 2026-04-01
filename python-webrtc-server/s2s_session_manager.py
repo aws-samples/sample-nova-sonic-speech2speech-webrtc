@@ -11,7 +11,8 @@ from datetime import datetime
 from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
 from aws_sdk_bedrock_runtime.models import InvokeModelWithBidirectionalStreamInputChunk, BidirectionalInputPayloadPart
 from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver, SigV4AuthScheme
-from smithy_aws_core.identity.environment import EnvironmentCredentialsResolver
+import boto3
+from smithy_aws_core.identity.static import StaticCredentialsResolver
 from integration import inline_agent, bedrock_knowledge_bases as kb
 
 # Get logger for this module FIRST (before using it)
@@ -198,10 +199,16 @@ class S2sSessionManager:
 
     def _initialize_client(self):
         """Initialize the Bedrock client."""
+        # Get credentials from boto3 (supports IAM role via IMDS in AgentCore)
+        session = boto3.Session()
+        creds = session.get_credentials().get_frozen_credentials()
         config = Config(
             endpoint_uri=f"https://bedrock-runtime.{self.region}.amazonaws.com",
             region=self.region,
-            aws_credentials_identity_resolver=EnvironmentCredentialsResolver()
+            aws_access_key_id=creds.access_key,
+            aws_secret_access_key=creds.secret_key,
+            aws_session_token=creds.token,
+            aws_credentials_identity_resolver=StaticCredentialsResolver(),
         )
         self.bedrock_client = BedrockRuntimeClient(config=config)
 

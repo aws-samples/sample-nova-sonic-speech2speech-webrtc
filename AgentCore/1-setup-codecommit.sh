@@ -81,14 +81,22 @@ echo ""
 # Clean up local zip
 rm -f $ZIP_FILE
 
-# Save configuration
+# Save configuration (preserve existing values from other steps)
 print_status "Saving configuration..."
+EXISTING_CONFIG=""
+if [ -f "AgentCore/.config" ]; then
+    # Preserve values not set by this step
+    EXISTING_CONFIG=$(grep -v "^REGION=" AgentCore/.config | grep -v "^ACCOUNT_ID=" | grep -v "^S3_BUCKET=" | grep -v "^S3_KEY=" | grep -v "^$")
+fi
 cat > AgentCore/.config <<EOF
 REGION=$REGION
 ACCOUNT_ID=$ACCOUNT_ID
 S3_BUCKET=$BUCKET_NAME
 S3_KEY=source.zip
 EOF
+if [ -n "$EXISTING_CONFIG" ]; then
+    echo "$EXISTING_CONFIG" >> AgentCore/.config
+fi
 print_success "Configuration saved to AgentCore/.config"
 echo ""
 

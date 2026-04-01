@@ -23,10 +23,11 @@ echo -e "${BLUE}========================================${NC}"
 echo ""
 
 print_status "This script will:"
-echo "  1. Setup CodeCommit repository"
+echo "  1. Setup S3 source repository"
 echo "  2. Setup CodeBuild project"
 echo "  3. Build ARM64 Docker image (10-15 min)"
-echo "  4. Deploy to AgentCore Runtime"
+echo "  3.5. Setup VPC (private subnet + NAT gateway)"
+echo "  4. Deploy to AgentCore Runtime (VPC mode)"
 echo "  5. Test the deployment"
 echo ""
 
@@ -38,12 +39,24 @@ if [[ "$CONFIRM" != "yes" && "$CONFIRM" != "y" ]]; then
 fi
 
 echo ""
+# Create venv with boto3 if not exists (needed by deploy scripts)
+if [ ! -d ".venv" ]; then
+    print_status "Creating Python virtual environment..."
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install -q boto3
+    print_success "Virtual environment created with boto3"
+else
+    source .venv/bin/activate
+fi
+echo ""
+
 print_status "Starting deployment process..."
 echo ""
 
-# Step 1: Setup CodeCommit
+# Step 1: Upload Source to S3
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}Step 1/5: Setup CodeCommit${NC}"
+echo -e "${BLUE}Step 1: Upload Source to S3${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 ./AgentCore/1-setup-codecommit.sh
 if [ $? -ne 0 ]; then
@@ -72,9 +85,19 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# Step 3.5: Setup VPC
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}Step 3.5: Setup VPC${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo "yes" | ./AgentCore/3.5-setup-vpc.sh
+if [ $? -ne 0 ]; then
+    print_error "Step 3.5 failed"
+    exit 1
+fi
+
 # Step 4: Deploy to AgentCore
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}Step 4/5: Deploy to AgentCore${NC}"
+echo -e "${BLUE}Step 4/5: Deploy to AgentCore (VPC mode)${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo "yes" | ./AgentCore/4-deploy-agentcore.sh
 if [ $? -ne 0 ]; then

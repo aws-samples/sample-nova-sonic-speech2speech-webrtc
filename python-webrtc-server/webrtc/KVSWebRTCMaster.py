@@ -41,6 +41,7 @@ class KVSWebRTCMaster:
         self.endpoints = None
         self.ice_servers = None
         self.peer_connections: Dict[str, RTCPeerConnection] = {}
+        self._pending_ice_candidates: Dict[str, list] = {}  # Queue ICE candidates arriving before PC is ready
         self.websocket = None
         
         # Audio and event handling
@@ -297,7 +298,9 @@ class KVSWebRTCMaster:
             logger.info(f"📥 [KVSWebRTCMaster] Handling SDP offer from {client_id}")
             logger.debug(f"📋 [KVSWebRTCMaster] SDP offer details - Type: {payload.get('type')}, SDP length: {len(payload.get('sdp', ''))}")
             
-            # 1. Prepare ICE servers and create peer connection (EXACT official pattern)
+            # 1. Refresh ICE servers (TURN credentials expire after 300s) and create peer connection
+            logger.debug(f"🔄 [KVSWebRTCMaster] Refreshing ICE servers for {client_id}...")
+            await self._prepare_ice_servers()
             logger.debug(f"🔗 [KVSWebRTCMaster] Creating peer connection for {client_id}...")
             configuration = RTCConfiguration(iceServers=self.ice_servers)
             pc = RTCPeerConnection(configuration=configuration)
@@ -330,7 +333,10 @@ class KVSWebRTCMaster:
                 type=payload['type']
             ))
             logger.debug(f"✅ [KVSWebRTCMaster] Remote description set for {client_id}")
-            
+
+            # 5.5. Apply any ICE candidates that arrived before PC was ready
+            await self._apply_pending_ice_candidates(client_id)
+
             # 6. Create and set local description (EXACT official pattern)
             logger.debug(f"📝 [KVSWebRTCMaster] Creating SDP answer for {client_id}...")
             await pc.setLocalDescription(await pc.createAnswer())  # Direct createAnswer() like official
@@ -486,9 +492,31 @@ class KVSWebRTCMaster:
                 candidate.sdpMLineIndex = payload['sdpMLineIndex']
                 await self.peer_connections[client_id].addIceCandidate(candidate)
                 logger.debug(f"[KVSWebRTCMaster] Added ICE candidate for {client_id}")
-                
+            else:
+                # Queue candidate - peer connection not ready yet
+                if client_id not in self._pending_ice_candidates:
+                    self._pending_ice_candidates[client_id] = []
+                self._pending_ice_candidates[client_id].append(payload)
+                logger.debug(f"[KVSWebRTCMaster] Queued ICE candidate for {client_id} (PC not ready)")
+
         except Exception as e:
             logger.error(f"[KVSWebRTCMaster] Error handling ICE candidate: {e}")
+
+    async def _apply_pending_ice_candidates(self, client_id: str):
+        """Apply any ICE candidates that arrived before the peer connection was ready"""
+        if client_id not in self._pending_ice_candidates:
+            return
+        pending = self._pending_ice_candidates.pop(client_id)
+        logger.info(f"[KVSWebRTCMaster] Applying {len(pending)} pending ICE candidates for {client_id}")
+        for payload in pending:
+            try:
+                candidate = candidate_from_sdp(payload['candidate'])
+                candidate.sdpMid = payload['sdpMid']
+                candidate.sdpMLineIndex = payload['sdpMLineIndex']
+                await self.peer_connections[client_id].addIceCandidate(candidate)
+                logger.debug(f"[KVSWebRTCMaster] Applied pending ICE candidate for {client_id}")
+            except Exception as e:
+                logger.error(f"[KVSWebRTCMaster] Error applying pending ICE candidate: {e}")
             
     async def _handle_client_disconnection(self, client_id: str):
         """Handle client disconnection"""
@@ -763,7 +791,8 @@ class KVSWebRTCMaster:
                         
                         if msg_type == 'SDP_OFFER':
                             logger.info(f"📤 [KVSWebRTCMaster] Processing SDP offer from {client_id}...")
-                            await self._handle_sdp_offer(payload, client_id)
+                            # Run in background so message loop continues reading ICE candidates
+                            asyncio.ensure_future(self._handle_sdp_offer(payload, client_id))
                         elif msg_type == 'ICE_CANDIDATE':
                             logger.debug(f"🧊 [KVSWebRTCMaster] Processing ICE candidate from {client_id}...")
                             await self._handle_ice_candidate(payload, client_id)

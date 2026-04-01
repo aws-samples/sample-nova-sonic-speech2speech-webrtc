@@ -5,14 +5,18 @@ class S2sEvent {
     temperature: 0.7
   };
 
-  static DEFAULT_SYSTEM_PROMPT = "You are a helpful AI assistant. " +
+/*   static DEFAULT_SYSTEM_PROMPT = "You are a helpful AI assistant. " +
     "The user and you will engage in a spoken dialog exchanging the transcripts of a natural real-time conversation. " +
     "Keep your responses short, generally two or three sentences for chatty scenarios. " +
     "You have access to various tools including location services, weather information, booking management, knowledge bases, " +
     "and IoT device control via MQTT publishing to AWS IoT Core. " +
     "When users ask about controlling smart home devices, sending sensor data, or publishing to MQTT topics, " +
     "use getKbTool_smarthome tool to find out the appropriate MQTT topic & payload, " +
-    "then use the publish_mqtt tool publish control message to IoT Core.";
+    "then use the publish_mqtt tool publish control message to IoT Core."; */
+
+  static DEFAULT_SYSTEM_PROMPT = "You are a helpful AI assistant. " +
+    "The user and you will engage in a spoken dialog exchanging the transcripts of a natural real-time conversation. " +
+    "Keep your responses short, generally two or three sentences for chatty scenarios. ";
 
   static DEFAULT_AUDIO_INPUT_CONFIG = {
     mediaType: "audio/lpcm",

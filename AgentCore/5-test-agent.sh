@@ -37,6 +37,10 @@ echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Step 5: Test Agent${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
+# Activate venv for boto3
+if [ -d ".venv" ]; then
+    source .venv/bin/activate
+fi
 source AgentCore/.config
 
 if [ -z "$RUNTIME_ID" ]; then
@@ -88,6 +92,24 @@ try:
     print(f"   ARN: {runtime_arn}")
     print()
     
+    # Use a fixed session ID so it can be stopped/reused
+    SESSION_ID = f"nova-sonic-test-{CHANNEL}"
+    # Pad to meet 33-char minimum
+    if len(SESSION_ID) < 33:
+        SESSION_ID = SESSION_ID + "-" * (33 - len(SESSION_ID))
+
+    # Stop previous session (forces new container with latest image)
+    client = boto3.client('bedrock-agentcore', region_name=REGION)
+    try:
+        client.stop_runtime_session(agentRuntimeArn=runtime_arn, runtimeSessionId=SESSION_ID)
+        print(f"🛑 Stopped previous session: {SESSION_ID}")
+        import time; time.sleep(2)
+    except client.exceptions.ResourceNotFoundException:
+        print(f"ℹ️  No previous session to stop")
+    except Exception as e:
+        print(f"⚠️  Could not stop previous session: {e}")
+    print()
+
     # Invoke runtime
     client = boto3.client('bedrock-agentcore', region_name=REGION)
     payload = json.dumps({
@@ -96,7 +118,7 @@ try:
     }).encode('utf-8')
     response = client.invoke_agent_runtime(
         agentRuntimeArn=runtime_arn,
-        runtimeSessionId=str(uuid.uuid4()),
+        runtimeSessionId=SESSION_ID,
         payload=payload
     )
     content = []
@@ -105,6 +127,9 @@ try:
     result = json.loads(''.join(content))
     print("✅ Response received:")
     print(json.dumps(result, indent=2))
+    print()
+    print(f"📌 Session ID: {SESSION_ID}")
+    print(f"   (use this to stop: stop_runtime_session(runtimeSessionId='{SESSION_ID}'))")
 except Exception as e:
     print(f"❌ Error: {e}")
     import traceback

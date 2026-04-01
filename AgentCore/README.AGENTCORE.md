@@ -1,25 +1,24 @@
 # Nova S2S WebRTC - AgentCore Runtime Deployment Guide
 
-## 🎯 Overview
+## Overview
 
-Nova S2S WebRTC successfully deployed to AWS Bedrock AgentCore Runtime, providing enterprise-grade scalability, security, and reliability.
+Deploy Nova Sonic speech-to-speech WebRTC solution to AWS Bedrock AgentCore Runtime with VPC networking for full WebRTC UDP connectivity.
 
-**Deployment approach:**
-- ✅ S3 as code source
-- ✅ CodeBuild for ARM64 Docker image
-- ✅ boto3 for direct AgentCore Runtime creation
-- ✅ Complete Conda environment preserved
+**Key components:**
+- S3 for code source (avoids CodeCommit auth issues)
+- CodeBuild for ARM64 Docker images (no local Docker needed)
+- VPC with private subnet + NAT gateway (required for WebRTC UDP)
+- boto3 credential bridge for Smithy SDK (AgentCore IAM role support)
 
 ---
 
-## 🚀 Quick Start
-
-### Prerequisites
+## Prerequisites
 
 ```bash
-# Configure AWS credentials
-aws configure
+aws configure  # AWS credentials with admin access
 ```
+
+## Quick Start
 
 ### One-Click Deployment
 
@@ -30,514 +29,265 @@ aws configure
 ### Step-by-Step Deployment
 
 ```bash
-# Step 1: Prepare S3 source
+# Step 1: Package and upload source to S3
 ./AgentCore/1-setup-codecommit.sh
 
-# Step 2: Setup CodeBuild
+# Step 2: Create CodeBuild project and IAM role
 ./AgentCore/2-setup-codebuild.sh
 
-# Step 3: Build image (10-15 min)
+# Step 3: Build ARM64 Docker image (~3-5 min)
 ./AgentCore/3-build-image.sh
-# If background mode selected, check status anytime:
-# ./AgentCore/check-build-status.sh
 
-# Step 4: Deploy to AgentCore
+# Step 3.5: Create VPC networking (private subnet + NAT gateway)
+./AgentCore/3.5-setup-vpc.sh
+
+# Step 4: Deploy to AgentCore Runtime (VPC mode)
 ./AgentCore/4-deploy-agentcore.sh
 
-# Step 5: Test
+# Step 5: Test the deployment
 ./AgentCore/5-test-agent.sh
-# Specify DEBUG level:
-./AgentCore/5-test-agent.sh --debug
-# or
-./AgentCore/5-test-agent.sh -d
-# or
-./AgentCore/5-test-agent.sh --log-level DEBUG
-# Other levels:
-./AgentCore/5-test-agent.sh --log-level WARNING
-./AgentCore/5-test-agent.sh --log-level ERROR
-```
-
-### Background Build Mode
-
-If background mode selected in Step 3:
-
-```bash
-# Check build status anytime
-./AgentCore/check-build-status.sh
-
-# Or monitor in real-time
-watch -n 10 ./AgentCore/check-build-status.sh
-
-# Continue after build completes
-./AgentCore/4-deploy-agentcore.sh
 ```
 
 ---
 
-## 📁 File Structure
+## File Structure
 
 ```
 AgentCore/
-├── README.AGENTCORE.md          # Complete deployment guide (this file)
-├── 1-setup-codecommit.sh        # Step 1: Prepare S3 source
-├── 2-setup-codebuild.sh         # Step 2: Setup CodeBuild
-├── 3-build-image.sh             # Step 3: Build image
-├── 4-deploy-agentcore.sh        # Step 4: Deploy Runtime
-├── 5-test-agent.sh              # Step 5: Test
+├── README.AGENTCORE.md          # This guide
+├── 1-setup-codecommit.sh        # Step 1: S3 source upload
+├── 2-setup-codebuild.sh         # Step 2: CodeBuild project
+├── 3-build-image.sh             # Step 3: Docker image build
+├── 3.5-setup-vpc.sh             # Step 3.5: VPC networking
+├── 4-deploy-agentcore.sh        # Step 4: Deploy runtime (VPC mode)
+├── 5-test-agent.sh              # Step 5: Test invocation
 ├── check-build-status.sh        # Helper: Check build status
-├── cleanup.sh                   # Helper: Cleanup resources
+├── cleanup.sh                   # Helper: Cleanup all resources
 ├── deploy-all.sh                # Helper: One-click deploy
-├── buildspec.yml                # CodeBuild config
-└── .config                      # Deployment config (auto-generated)
-
-python-webrtc-server/
-├── Dockerfile                   # ARM64 container config (used by CodeBuild)
-├── agentcore_wrapper.py         # FastAPI wrapper (copied by Dockerfile)
-├── webrtc_s2s_integration.py    # WebRTC S2S integration
-├── webrtc/                      # WebRTC core modules
-│   ├── KVSWebRTCMaster.py      # WebRTC Master implementation
-│   └── ...
-└── ...
+├── buildspec.yml                # CodeBuild specification
+├── .bedrock_agentcore.yaml      # AgentCore metadata
+└── .config                      # Auto-generated deployment state
 ```
 
-**Note:** buildspec.yml runs `cd python-webrtc-server` before building, so Dockerfile and agentcore_wrapper.py must be in that directory.
-
-### Script Descriptions
-
-**Deployment scripts (execute in order):**
+### Script Summary
 
 | Script | Function | Duration |
 |--------|----------|----------|
-| `1-setup-codecommit.sh` | Create S3 bucket, package and upload code | ~1 min |
-| `2-setup-codebuild.sh` | Create CodeBuild project and IAM role | ~1 min |
-| `3-build-image.sh` | Build ARM64 Docker image | ~3-5 min |
-| `4-deploy-agentcore.sh` | Create/update AgentCore Runtime | ~1 min |
-| `5-test-agent.sh` | Test Runtime invocation | ~1 min |
-
-**Helper scripts:**
-
-| Script | Function |
-|--------|----------|
-| `deploy-all.sh` | Auto-execute steps 1-5 |
-| `check-build-status.sh` | Check CodeBuild status |
-| `cleanup.sh` | Delete all created resources |
+| `1-setup-codecommit.sh` | S3 bucket + source upload | ~1 min |
+| `2-setup-codebuild.sh` | CodeBuild project + IAM role | ~30 sec |
+| `3-build-image.sh` | ARM64 Docker image build | ~3-5 min |
+| `3.5-setup-vpc.sh` | VPC + NAT gateway + security group | ~2 min |
+| `4-deploy-agentcore.sh` | IAM role update + runtime deploy | ~1 min |
+| `5-test-agent.sh` | Invoke runtime + verify | ~30 sec |
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
-### Runtime Mode
+### Network Architecture (VPC Mode)
+
+```
+Internet
+    │
+    ├── Viewer (Browser/React Client)
+    │       │
+    │       │ WebRTC UDP (via TURN relay)
+    │       │
+    │       ▼
+    │   KVS TURN Server ◄─── TURN allocation ──── AgentCore Container
+    │                                                     │
+    ├── KVS Signaling (WSS) ◄──────────────────────────── │
+    │                                                     │
+    └── NAT Gateway (public subnet)                       │
+            │                                             │
+            └── Private Subnet ───────────────────────────┘
+                (AgentCore Runtime ENI)
+```
+
+**Why VPC is required:**
+- AgentCore PUBLIC mode gives containers link-local IPs (169.254.x.x) - unreachable for WebRTC
+- VPC mode with private subnet + NAT gateway enables:
+  - Outbound internet access (Bedrock API, KVS signaling, TURN servers)
+  - TURN relay for WebRTC media (UDP through NAT)
+  - Proper ICE candidate gathering (srflx + relay candidates)
+
+### Runtime Flow
 
 ```
 AgentCore Runtime Container (ARM64)
-    ↓
-Container starts → FastAPI starts (port 8080)
-    ↓
-/invocations call → Initialize/switch WebRTC Master → Return immediately
-    ↓
-WebRTC Master runs in background → Wait for client → Process media streams
-    ↓
-/ping health check → Return Healthy or HealthyBusy
+    │
+    ├── FastAPI starts on port 8080
+    │
+    ├── POST /invocations
+    │       ├── Initialize WebRTC Master
+    │       ├── Connect to KVS signaling channel (WSS)
+    │       ├── Obtain TURN credentials from KVS
+    │       └── Return immediately (async processing)
+    │
+    ├── Viewer connects via KVS signaling
+    │       ├── Receive SDP offer
+    │       ├── Refresh TURN credentials (they expire after 300s)
+    │       ├── Create peer connection with TURN relay
+    │       ├── Exchange ICE candidates (non-blocking)
+    │       └── Establish WebRTC media connection
+    │
+    ├── Audio pipeline (after WebRTC connected)
+    │       ├── Receive audio from Viewer via WebRTC
+    │       ├── Forward to Nova Sonic via bidirectional stream
+    │       ├── Receive Nova Sonic response audio
+    │       └── Send back to Viewer via WebRTC
+    │
+    └── GET /ping → Health check (Healthy / HealthyBusy)
 ```
-
-### Key Features
-
-- ✅ **Dynamic Channel Management** - Each call can specify different signaling channel
-- ✅ **Async Processing** - /invocations returns immediately, WebRTC runs in background
-- ✅ **Smart Health Check** - Distinguishes idle vs busy states
-- ✅ **IAM Role Integration** - Auto-obtains AWS credentials from AgentCore Runtime
-- ✅ **Complete Conda Environment** - All dependencies preserved, including FFmpeg and PyAV
 
 ---
 
-## 📊 API Specification
+## Key Technical Details
 
-### POST /invocations
+### IAM Permissions
 
-**Request format:**
-```json
-{
-  "channel_name": "nova-s2s-webrtc-test",
-  "session_id": "my-session-001",
-  "prompt": "Hello",
-  "log_level": "INFO"
-}
+The runtime execution role (`BedrockAgentCoreRuntimeRole_NovaSonic`) requires:
+
+| Permission | Purpose |
+|-----------|---------|
+| `ecr:GetAuthorizationToken`, `ecr:BatchGetImage`, etc. | Pull container image |
+| `kinesisvideo:*` | KVS signaling, ICE server config |
+| `bedrock:InvokeModel*` | Nova Sonic bidirectional streaming |
+| `logs:*` | CloudWatch logging |
+| `ec2:CreateNetworkInterface`, `ec2:Describe*`, etc. | VPC network interfaces |
+
+**Important:** `bedrock:InvokeModelWithResponseStream` alone is NOT sufficient. The bidirectional stream API requires `bedrock:InvokeModelWithBidirectionalStream` (use `bedrock:InvokeModel*`).
+
+### Credential Bridging (Smithy SDK)
+
+The `aws-sdk-bedrock-runtime` (Smithy-based SDK for Nova Sonic streaming) does NOT use boto3's credential chain. AgentCore provides IAM role credentials via instance metadata (IMDS), which boto3 picks up automatically but the Smithy SDK does not.
+
+**Solution:** Bridge credentials from boto3 to Smithy SDK:
+```python
+import boto3
+from smithy_aws_core.identity.static import StaticCredentialsResolver
+
+session = boto3.Session()
+creds = session.get_credentials().get_frozen_credentials()
+config = Config(
+    aws_access_key_id=creds.access_key,
+    aws_secret_access_key=creds.secret_key,
+    aws_session_token=creds.token,
+    aws_credentials_identity_resolver=StaticCredentialsResolver(),
+)
 ```
 
-Or:
-```json
-{
-  "input": {
-    "channel_name": "nova-s2s-webrtc-test",
-    "session_id": "my-session-001"
-  }
-}
-```
+### WebRTC ICE Handling
 
-**Response format:**
-```json
-{
-  "output": {
-    "session_id": "session-20260125-100639",
-    "channel_name": "nova-s2s-webrtc-test",
-    "status": "session_started",
-    "message": "WebRTC session started",
-    "timestamp": "2026-01-25T10:06:39.434344",
-    "service": "NovaSonic-S2S-KVSWebRTC",
-    "active_peers": 0
-  }
-}
-```
+Two critical fixes for WebRTC in VPC:
 
-### GET /ping
+1. **TURN credential refresh:** KVS TURN credentials expire after 300 seconds. They must be refreshed before each peer connection (not just at initialization).
 
-**Response format:**
-```json
-{
-  "status": "Healthy",
-  "timestamp": "2026-01-25T10:06:39.434344",
-  "service": "NovaSonic-S2S-KVSWebRTC",
-  "version": "1.0.0",
-  "active_peers": 0,
-  "message": "Service is healthy and ready"
-}
-```
+2. **Non-blocking SDP offer handling:** The signaling message loop must not block during ICE gathering (~5 seconds). SDP offer processing runs as a background task so ICE candidates from the Viewer are received and queued properly.
 
-**Status descriptions:**
-- `Healthy` - No active peer connections
-- `HealthyBusy` - Has active peer connections (connectionState == 'connected')
+### Docker Image
+
+- **Base:** `public.ecr.aws/docker/library/python:3.12-slim` + Miniconda (avoids Docker Hub rate limits)
+- **Size:** ~874 MB (ultralytics/PyTorch excluded - not needed for Master)
+- **Conda TOS:** Accepted automatically in Dockerfile
+- **Key dependencies:** aiortc, boto3, fastapi, aws-sdk-bedrock-runtime
 
 ---
 
-## 🔧 Technical Details
-
-### Deployment Approach
-
-| Component | Solution | Description |
-|-----------|----------|-------------|
-| Code source | S3 | Avoids CodeCommit auth delays |
-| Build environment | CodeBuild ARM64 | Cloud build, no local Docker needed |
-| Base image | Miniconda3 (ECR cached) | Avoids Docker Hub rate limits |
-| Dependency management | Conda + Pip | Conda for av/ffmpeg, Pip for others |
-| Runtime creation | boto3 API | Direct bedrock-agentcore-control call |
-
-### Key Fixes
-
-1. **S3 source** - Bypasses CodeCommit auth issues
-2. **ECR image cache** - Pull miniconda3 to ECR in buildspec.yml
-3. **Build tools** - Add gcc/g++ for webrtcvad compilation
-4. **Logger definition order** - Fix NameError in s2s_session_manager.py
-5. **Flexible request handling** - agentcore_wrapper.py supports multiple formats
-6. **Complete IAM permissions** - ECR, S3, KVS, Bedrock, CloudWatch Logs
-
-### Image Size and Performance
-
-- **Image size**: ~1.5 GB
-- **Cold start**: ~10-15 sec
-- **Warm start**: ~2-3 sec (channel switch)
-- **Build time**: ~3.5 min
-
----
-
-## 🎯 Use Cases
-
-### Case 1: First Complete Deployment
+## Redeploy After Code Update
 
 ```bash
-# One-click deploy (recommended)
-./AgentCore/deploy-all.sh
-```
-
-### Case 2: Redeploy After Code Update
-
-```bash
-# 1. Repackage and upload
+# 1. Upload new source
 ./AgentCore/1-setup-codecommit.sh
 
 # 2. Rebuild image
-./AgentCore/3-build-image.sh
+echo "yes" | ./AgentCore/3-build-image.sh
 
-# 3. Update Runtime
-./AgentCore/4-deploy-agentcore.sh
+# 3. Update runtime
+echo "yes" | ./AgentCore/4-deploy-agentcore.sh
 
-# 4. Test
+# 4. IMPORTANT: Stop old sessions to force new container
+python3 -c "
+import boto3
+client = boto3.client('bedrock-agentcore', region_name='ap-northeast-1')
+client.stop_runtime_session(
+    agentRuntimeArn='YOUR_RUNTIME_ARN',
+    runtimeSessionId='YOUR_SESSION_ID'
+)
+"
+
+# 5. Invoke fresh session and test
 ./AgentCore/5-test-agent.sh
 ```
 
-### Case 3: Background Build Mode
-
-```bash
-# 1. Start build (select 'no' for background)
-./AgentCore/3-build-image.sh
-# Input: no
-
-# 2. Do other things, check status anytime
-./AgentCore/check-build-status.sh
-
-# 3. Continue after build completes
-./AgentCore/4-deploy-agentcore.sh
-```
-
-### Case 4: Test Existing Deployment Only
-
-```bash
-./AgentCore/5-test-agent.sh
-```
+**Note:** `update_agent_runtime` does NOT replace running containers. You must stop active sessions or wait for the 15-minute idle timeout.
 
 ---
 
-## 🔍 Monitoring and Debugging
+## Monitoring
 
-### Check Build Status
-
-**Using helper script (recommended):**
-```bash
-./AgentCore/check-build-status.sh
-```
-
-**Using AWS CLI:**
-```bash
-aws codebuild batch-get-builds \
-  --ids $(cat AgentCore/.config | grep BUILD_ID | cut -d= -f2) \
-  --region ap-northeast-1
-```
-
-### View Runtime Logs
+### Runtime Logs
 
 ```bash
-# Real-time view
+# CloudWatch log group
+/aws/bedrock-agentcore/runtimes/<RUNTIME_ID>-DEFAULT
+
+# View recent logs
 aws logs tail /aws/bedrock-agentcore/runtimes/NovaSonic_S2S_KVSWebRTC-vLGD8tHJIH-DEFAULT \
-  --follow \
-  --region ap-northeast-1
-
-# View last 10 minutes
-aws logs tail /aws/bedrock-agentcore/runtimes/NovaSonic_S2S_KVSWebRTC-vLGD8tHJIH-DEFAULT \
-  --since 10m \
-  --region ap-northeast-1
-```
-
-### View Build Logs
-
-```bash
-aws logs tail /aws/codebuild/nova-webrtc-agentcore-build \
-  --follow \
-  --region ap-northeast-1
+  --since 5m --region ap-northeast-1
 ```
 
 ### Check Runtime Status
 
 ```bash
+source .venv/bin/activate
 python3 -c "
 import boto3
 client = boto3.client('bedrock-agentcore-control', region_name='ap-northeast-1')
-runtime = client.get_agent_runtime(
-    agentRuntimeId='NovaSonic_S2S_KVSWebRTC-vLGD8tHJIH',
-    agentRuntimeVersion='1'
+rt = client.get_agent_runtime(agentRuntimeId='NovaSonic_S2S_KVSWebRTC-vLGD8tHJIH')
+print(f'Status: {rt[\"status\"]}')
+print(f'Network: {rt[\"networkConfiguration\"]}')
+print(f'Version: {rt[\"agentRuntimeVersion\"]}')
+"
+```
+
+### Stop Active Session
+
+```bash
+source .venv/bin/activate
+python3 -c "
+import boto3
+client = boto3.client('bedrock-agentcore', region_name='ap-northeast-1')
+client.stop_runtime_session(
+    agentRuntimeArn='arn:aws:bedrock-agentcore:ap-northeast-1:585306731051:runtime/NovaSonic_S2S_KVSWebRTC-vLGD8tHJIH',
+    runtimeSessionId='YOUR_SESSION_ID'
 )
-print(f\"Status: {runtime['status']}\")
-print(f\"ARN: {runtime['agentRuntimeArn']}\")
 "
 ```
 
 ---
 
-## 🎯 Invoking Agent
+## Troubleshooting
 
-Using boto3:
-
-```python
-import boto3
-import json
-import uuid
-
-client = boto3.client('bedrock-agentcore', region_name='ap-northeast-1')
-
-# Runtime ARN
-runtime_arn = "arn:aws:bedrock-agentcore:ap-northeast-1:585306731051:runtime/NovaSonic_S2S_KVSWebRTC-vLGD8tHJIH"
-
-# Prepare request
-payload = json.dumps({
-    "channel_name": "nova-s2s-webrtc-test",
-    "session_id": "my-session-001"
-}).encode('utf-8')
-
-# Invoke
-response = client.invoke_agent_runtime(
-    agentRuntimeArn=runtime_arn,
-    runtimeSessionId=str(uuid.uuid4()),
-    payload=payload
-)
-
-# Parse response
-content = []
-for chunk in response.get('response', []):
-    content.append(chunk.decode('utf-8'))
-result = json.loads(''.join(content))
-print(json.dumps(result, indent=2))
-```
-
-### Update Code
-
-```bash
-# 1. After modifying code, repackage and upload
-./AgentCore/1-setup-codecommit.sh
-
-# 2. Rebuild image
-./AgentCore/3-build-image.sh
-
-# 3. Update Runtime
-./AgentCore/4-deploy-agentcore.sh
-
-# 4. Test
-./AgentCore/5-test-agent.sh
-```
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Build fails: Docker Hub rate limit | Base image pull rate-limited | Uses `public.ecr.aws` base image (already fixed) |
+| Build fails: conda TOS error | Conda channels require TOS acceptance | `conda tos accept` in Dockerfile (already fixed) |
+| Container crash: `No module named 'fastapi'` | Wrong Python used (base vs conda) | CMD uses full path `/opt/conda/envs/.../python` |
+| Image too large (>3GB) | ultralytics pulls PyTorch+CUDA | Excluded from Dockerfile (not needed for Master) |
+| 403 AccessDeniedException from Bedrock | IAM missing `InvokeModelWithBidirectionalStream` | Use `bedrock:InvokeModel*` in IAM policy |
+| SmithyIdentityError | Smithy SDK can't find credentials | Use boto3 credential bridge (see above) |
+| WebRTC: ICE stuck at "checking" | TURN credentials expired | Refresh TURN creds before each peer connection |
+| WebRTC: Viewer ICE candidates lost | Message loop blocked during SDP handling | SDP offer processed as background task |
+| No audio response | Session manager not created (credential error) | Check CloudWatch logs for init errors |
+| Old code still running after deploy | AgentCore reuses running containers | Stop sessions via API or wait 15 min idle timeout |
 
 ---
 
-## 🛠️ Troubleshooting
-
-### Issue 1: Build Failure
-
-**Check:**
-```bash
-# View build logs
-aws logs tail /aws/codebuild/nova-webrtc-agentcore-build --region ap-northeast-1
-```
-
-**Common causes:**
-- Insufficient S3 permissions
-- Insufficient ECR permissions
-- buildspec.yml not in root directory
-
-### Issue 2: Runtime Startup Failure
-
-**Check:**
-```bash
-# View Runtime logs
-aws logs tail /aws/bedrock-agentcore/runtimes/NovaSonic_S2S_KVSWebRTC-vLGD8tHJIH-DEFAULT \
-  --region ap-northeast-1
-```
-
-**Common causes:**
-- Code import errors
-- Missing dependencies
-- Port configuration errors
-
-### Issue 3: Invocation Returns 422
-
-**Cause:** Request format mismatch
-
-**Solution:** Ensure request contains `channel_name` parameter
-
----
-
-## ⚠️ Known Limitations
-
-### WebRTC Connection Limitation
-
-**Issue:** AgentCore Runtime cannot establish WebRTC peer-to-peer connections
-
-**Cause:**
-- AgentCore Runtime only supports HTTP/HTTPS protocol (port 8080)
-- WebRTC requires dynamic UDP ports for media streams (RTP/RTCP)
-- Even with TURN server configured, container cannot create dynamic UDP ports
-
-**Symptoms:**
-- Master correctly generates and sends SDP answer (with ICE candidates)
-- Viewer receives SDP answer
-- But connection stuck in `connecting` state, never reaches `connected`
-- WebSocket keepalive timeout after 20-25 sec
-
-**Solutions:**
-1. **Recommended:** Deploy WebRTC Master to EC2/ECS (supports UDP)
-   - AgentCore Runtime as control plane (business logic)
-   - WebRTC Master as media plane (audio/video processing)
-   - Communicate via HTTP API
-
-2. **Alternative:** Use HTTP-based media transport
-   - Don't use WebRTC peer-to-peer
-   - Transport audio via HTTP/WebSocket
-   - Sacrifice real-time performance but more reliable
-
-**Architecture recommendation:**
-```
-Viewer (Browser)
-    ↓ WebRTC/UDP
-WebRTC Master (EC2/ECS with Public IP)
-    ↓ HTTP API
-AgentCore Runtime (Business Logic)
-```
-
----
-
-## 🧹 Cleanup Resources
+## Cleanup
 
 ```bash
 ./AgentCore/cleanup.sh
 ```
 
-This will delete:
-- AgentCore Runtime
-- ECR Repositories (app + base image)
-- CodeBuild Project
-- S3 Bucket
-- IAM Roles (optional)
-
----
-
-## 📚 Important Notes
-
-### webrtcvad Installation
-
-webrtcvad requires compilation, in Dockerfile:
-- Installed gcc/g++ build tools
-- Attempts to install webrtcvad
-- If fails, code auto-fallbacks to RMS filtering
-
-### IAM Permissions
-
-Runtime execution role needs:
-- ECR: Pull images
-- KVS: Access signaling channels
-- Bedrock: Invoke Nova Sonic model
-- CloudWatch Logs: Write logs
-
-### Network Configuration
-
-- Uses PUBLIC network mode
-- Port 8080 (AgentCore requirement)
-- Supports WebRTC connections
-
----
-
-## 🎉 Successful Deployment Info
-
-**Runtime info:**
-- Name: `NovaSonic_S2S_KVSWebRTC`
-- ID: `NovaSonic_S2S_KVSWebRTC-vLGD8tHJIH`
-- ARN: `arn:aws:bedrock-agentcore:ap-northeast-1:585306731051:runtime/NovaSonic_S2S_KVSWebRTC-vLGD8tHJIH`
-- Status: READY ✅
-- Region: ap-northeast-1
-
-**Test results:**
-- ✅ Container started successfully
-- ✅ FastAPI running on port 8080
-- ✅ /ping health check normal
-- ✅ /invocations call successful
-- ✅ webrtcvad installed successfully
-- ✅ All dependencies loaded normally
-
----
-
-## 📝 Next Steps
-
-1. **Connect WebRTC client** - Use React client or KVS Test Page
-2. **Monitor logs** - View CloudWatch logs
-3. **Performance optimization** - Adjust config based on actual load
-4. **Production deployment** - Configure alerts and monitoring
-
----
-
-**Deployment completed:** 2026-01-25  
-**Total time:** ~2 hours (including debugging)  
-**Final status:** ✅ Successfully deployed and tested
+Deletes: AgentCore Runtime, ECR repository, CodeBuild project, S3 bucket, IAM roles, VPC resources (NAT gateway, subnets, security groups, route tables, EIP).

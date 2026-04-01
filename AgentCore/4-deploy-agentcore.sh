@@ -15,6 +15,10 @@ echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}Step 4: Deploy to AgentCore Runtime${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
+# Activate venv for boto3
+if [ -d ".venv" ]; then
+    source .venv/bin/activate
+fi
 source AgentCore/.config
 if [ -z "$IMAGE_URI" ]; then
     print_error "IMAGE_URI not found"
@@ -34,7 +38,7 @@ ACCOUNT_ID = "585306731051"
 REGION = "ap-northeast-1"
 iam = boto3.client('iam')
 trust = {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"bedrock-agentcore.amazonaws.com"},"Action":"sts:AssumeRole"}]}
-policy = {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ecr:GetAuthorizationToken","ecr:BatchGetImage","ecr:GetDownloadUrlForLayer","ecr:BatchCheckLayerAvailability","kinesisvideo:*","bedrock:InvokeModelWithResponseStream","logs:*"],"Resource":"*"}]}
+policy = {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ecr:GetAuthorizationToken","ecr:BatchGetImage","ecr:GetDownloadUrlForLayer","ecr:BatchCheckLayerAvailability","kinesisvideo:*","bedrock:InvokeModel*","logs:*","ec2:CreateNetworkInterface","ec2:DescribeNetworkInterfaces","ec2:DeleteNetworkInterface","ec2:AssignPrivateIpAddresses","ec2:UnassignPrivateIpAddresses","ec2:DescribeSubnets","ec2:DescribeVpcs","ec2:DescribeSecurityGroups"],"Resource":"*"}]}
 try:
     role = iam.get_role(RoleName=ROLE_NAME)
     print(f"✅ Role exists, updating policy...")
@@ -85,11 +89,20 @@ if [[ "$CONFIRM" != "yes" && "$CONFIRM" != "y" ]]; then
 fi
 echo ""
 
+if [ -z "$PRIVATE_SUBNET_ID" ] || [ -z "$SECURITY_GROUP_ID" ]; then
+    print_error "VPC not configured. Run ./AgentCore/3.5-setup-vpc.sh first."
+    exit 1
+fi
+print_status "VPC Mode: subnet=$PRIVATE_SUBNET_ID sg=$SECURITY_GROUP_ID"
+echo ""
+
 export REGION=$REGION
 export IMAGE_URI=$IMAGE_URI
 export ROLE_ARN=$ROLE_ARN
 export RUNTIME_NAME=$RUNTIME_NAME
 export EXISTING_RUNTIME_ID=$EXISTING_RUNTIME_ID
+export PRIVATE_SUBNET_ID=$PRIVATE_SUBNET_ID
+export SECURITY_GROUP_ID=$SECURITY_GROUP_ID
 
 python3 <<'EOFPY'
 import boto3, json, sys, os
@@ -98,9 +111,20 @@ IMAGE_URI = os.environ['IMAGE_URI']
 ROLE_ARN = os.environ['ROLE_ARN']
 RUNTIME_NAME = os.environ['RUNTIME_NAME']
 EXISTING_RUNTIME_ID = os.environ.get('EXISTING_RUNTIME_ID', '')
-print(f"🚀 Deploying Runtime...")
+PRIVATE_SUBNET_ID = os.environ['PRIVATE_SUBNET_ID']
+SECURITY_GROUP_ID = os.environ['SECURITY_GROUP_ID']
+network_config = {
+    'networkMode': 'VPC',
+    'networkModeConfig': {
+        'subnets': [PRIVATE_SUBNET_ID],
+        'securityGroups': [SECURITY_GROUP_ID]
+    }
+}
+print(f"🚀 Deploying Runtime (VPC mode)...")
 print(f"   Name: {RUNTIME_NAME}")
 print(f"   Image: {IMAGE_URI}")
+print(f"   Subnet: {PRIVATE_SUBNET_ID}")
+print(f"   Security Group: {SECURITY_GROUP_ID}")
 print()
 try:
     client = boto3.client('bedrock-agentcore-control', region_name=REGION)
@@ -110,7 +134,7 @@ try:
             agentRuntimeId=EXISTING_RUNTIME_ID,
             agentRuntimeArtifact={'containerConfiguration':{'containerUri':IMAGE_URI}},
             roleArn=ROLE_ARN,
-            networkConfiguration={'networkMode':'PUBLIC'}
+            networkConfiguration=network_config
         )
         runtime_id = EXISTING_RUNTIME_ID
         print(f"✅ Runtime updated!")
@@ -120,7 +144,7 @@ try:
             agentRuntimeName=RUNTIME_NAME,
             agentRuntimeArtifact={'containerConfiguration':{'containerUri':IMAGE_URI}},
             roleArn=ROLE_ARN,
-            networkConfiguration={'networkMode':'PUBLIC'}
+            networkConfiguration=network_config
         )
         runtime_id = response['agentRuntimeId']
         print(f"✅ Runtime created!")

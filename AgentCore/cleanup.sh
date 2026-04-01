@@ -78,17 +78,6 @@ else
 fi
 echo ""
 
-# 2.5. Delete base image ECR Repository
-BASE_ECR_REPO="miniconda3-arm64"
-print_status "Deleting base image ECR Repository: $BASE_ECR_REPO"
-if aws ecr delete-repository \
-    --repository-name $BASE_ECR_REPO \
-    --force \
-    --region $REGION 2>/dev/null; then
-    print_success "Base image ECR Repository deleted"
-else
-    print_warning "Base image ECR Repository not found or already deleted"
-fi
 echo ""
 
 # 2.6. Delete S3 bucket
@@ -161,9 +150,79 @@ else
 fi
 echo ""
 
-# 6. Clean up local files
+# 6. Delete VPC Resources (if created by 3.5-setup-vpc.sh)
+if [ -n "$VPC_ID" ]; then
+    read -p "Delete VPC and networking resources ($VPC_ID)? (yes/no): " DELETE_VPC
+    if [[ "$DELETE_VPC" == "yes" ]]; then
+        print_status "Deleting VPC resources..."
+
+        # Delete NAT Gateway first (takes time)
+        if [ -n "$NAT_GW_ID" ]; then
+            print_status "Deleting NAT Gateway: $NAT_GW_ID"
+            aws ec2 delete-nat-gateway --nat-gateway-id $NAT_GW_ID --region $REGION 2>/dev/null || true
+            print_status "Waiting for NAT Gateway to delete..."
+            aws ec2 wait nat-gateway-deleted --nat-gateway-ids $NAT_GW_ID --region $REGION 2>/dev/null || sleep 30
+            print_success "NAT Gateway deleted"
+        fi
+
+        # Release Elastic IP
+        if [ -n "$EIP_ALLOC_ID" ]; then
+            print_status "Releasing Elastic IP: $EIP_ALLOC_ID"
+            aws ec2 release-address --allocation-id $EIP_ALLOC_ID --region $REGION 2>/dev/null || true
+            print_success "Elastic IP released"
+        fi
+
+        # Delete subnets
+        for SUBNET_ID in $PRIVATE_SUBNET_ID $PUBLIC_SUBNET_ID; do
+            if [ -n "$SUBNET_ID" ]; then
+                print_status "Deleting subnet: $SUBNET_ID"
+                aws ec2 delete-subnet --subnet-id $SUBNET_ID --region $REGION 2>/dev/null || true
+            fi
+        done
+
+        # Delete route tables (non-main)
+        for RTB_ID in $PRIVATE_RTB_ID $PUBLIC_RTB_ID; do
+            if [ -n "$RTB_ID" ]; then
+                # Disassociate first
+                ASSOC_IDS=$(aws ec2 describe-route-tables --route-table-ids $RTB_ID --region $REGION \
+                    --query 'RouteTables[0].Associations[?!Main].RouteTableAssociationId' --output text 2>/dev/null || echo "")
+                for ASSOC in $ASSOC_IDS; do
+                    aws ec2 disassociate-route-table --association-id $ASSOC --region $REGION 2>/dev/null || true
+                done
+                print_status "Deleting route table: $RTB_ID"
+                aws ec2 delete-route-table --route-table-id $RTB_ID --region $REGION 2>/dev/null || true
+            fi
+        done
+
+        # Delete security group
+        if [ -n "$SECURITY_GROUP_ID" ]; then
+            print_status "Deleting security group: $SECURITY_GROUP_ID"
+            aws ec2 delete-security-group --group-id $SECURITY_GROUP_ID --region $REGION 2>/dev/null || true
+        fi
+
+        # Detach and delete IGW
+        if [ -n "$IGW_ID" ]; then
+            print_status "Detaching and deleting Internet Gateway: $IGW_ID"
+            aws ec2 detach-internet-gateway --internet-gateway-id $IGW_ID --vpc-id $VPC_ID --region $REGION 2>/dev/null || true
+            aws ec2 delete-internet-gateway --internet-gateway-id $IGW_ID --region $REGION 2>/dev/null || true
+        fi
+
+        # Delete VPC
+        print_status "Deleting VPC: $VPC_ID"
+        aws ec2 delete-vpc --vpc-id $VPC_ID --region $REGION 2>/dev/null || true
+        print_success "VPC resources deleted"
+    else
+        print_status "Keeping VPC resources"
+    fi
+else
+    print_status "No VPC resources found, skipping"
+fi
+echo ""
+
+# 7. Clean up local files
 print_status "Cleaning up local files..."
 rm -f .agentcore_arn
+rm -f .agentcore_runtime_id
 rm -f agentcore_deployment_info.json
 rm -f AgentCore/.config
 print_success "Local files cleaned up"
