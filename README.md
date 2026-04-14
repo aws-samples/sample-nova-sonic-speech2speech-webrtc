@@ -799,6 +799,34 @@ For production deployment:
 
 See [docs/deployment.md](docs/deployment.md) for detailed production setup instructions.
 
+## 🧹 Resource Clean-up
+
+When you no longer need the resources created for this project, clean them up to avoid unnecessary costs:
+
+### Delete KVS Signaling Channel
+
+**Option 1: Using AWS Console**
+1. Open the [Amazon Kinesis Video Streams Console](https://console.aws.amazon.com/kinesisvideo/)
+2. Navigate to **Signaling channels**
+3. Select `nova-s2s-webrtc-test`
+4. Click **Delete**
+
+**Option 2: Using AWS CLI**
+```bash
+aws kinesisvideo delete-signaling-channel \
+    --channel-arn $(aws kinesisvideo describe-signaling-channel \
+        --channel-name nova-s2s-webrtc-test \
+        --region ap-northeast-1 \
+        --query 'ChannelInfo.ChannelARN' --output text) \
+    --region ap-northeast-1
+```
+
+### Remove Conda Environment
+```bash
+conda deactivate
+conda env remove -n nova-s2s-webrtc -y
+```
+
 ## Security
 
 See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
