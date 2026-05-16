@@ -1,0 +1,14 @@
+# Core dependencies (shared with python-webrtc-server)
+aiohttp>=3.9.0
+aiortc>=1.9.0
+boto3>=1.34.0
+av>=12.0.0
+botocore>=1.34.0
+aws-sdk-bedrock-runtime>=0.0.1
+smithy-aws-core>=0.1.0
+smithy-core>=0.1.0
+smithy-http>=0.2.0
+numpy>=1.24.0
+python-dotenv>=1.0.0
+websockets>=12.0
+scipy>=1.10.0

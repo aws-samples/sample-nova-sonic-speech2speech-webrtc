@@ -1,0 +1,217 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  height: 100%;
+  background: #f9fafb;
+}
+html { height: 100%; }
+
+.multi-party {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.multi-party .header {
+  text-align: center;
+  padding: 16px 20px;
+  background: #232f3e;
+  color: white;
+  border-radius: 8px;
+  margin-bottom: 20px;
+}
+
+.multi-party .header h1 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.multi-party .header p {
+  margin: 0;
+  font-size: 13px;
+  color: #adb5bd;
+}
+
+.multi-party .info-bar {
+  text-align: center;
+  padding: 10px 16px;
+  background: #fff;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-size: 13px;
+  color: #555;
+}
+
+.multi-party .info-bar strong {
+  color: #232f3e;
+}
+
+.multi-party .panels {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+/* Participant Panel */
+.participant-panel {
+  flex: 1 1 300px;
+  min-width: 300px;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  min-height: 600px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.participant-panel .panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e9ecef;
+  border-radius: 8px 8px 0 0;
+}
+
+.participant-panel .panel-header .name {
+  font-weight: 600;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.participant-panel .panel-header .status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.participant-panel .panel-header .status-text {
+  font-size: 12px;
+  color: #666;
+  text-transform: capitalize;
+}
+
+.participant-panel .controls {
+  display: flex;
+  gap: 8px;
+  padding: 12px 20px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.participant-panel .controls button {
+  padding: 8px 20px;
+  font-size: 13px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #fff;
+  font-weight: 500;
+  transition: opacity 0.2s;
+}
+
+.participant-panel .controls button:hover {
+  opacity: 0.9;
+}
+
+.participant-panel .controls .btn-join {
+  background: #0972d3;
+}
+
+.participant-panel .controls .btn-leave {
+  background: #d91515;
+}
+
+.participant-panel .controls .btn-mute {
+  background: #037f0c;
+}
+
+.participant-panel .controls .btn-unmute {
+  background: #d91515;
+}
+
+/* Chat area - matches original .s2s .chatarea */
+.participant-panel .chatarea {
+  flex: 1;
+  padding: 12px 16px;
+  overflow-y: auto;
+  background: #f5f4f4;
+}
+
+.participant-panel .chatarea .empty {
+  color: #999;
+  text-align: center;
+  margin-top: 80px;
+  font-style: italic;
+}
+
+.participant-panel .chatarea .item {
+  position: relative;
+  width: 100%;
+  padding: 6px 0;
+  overflow: hidden;
+}
+
+.participant-panel .chatarea .item .user {
+  display: block;
+  float: left;
+  text-align: left;
+  background-color: #b1dafc;
+  max-width: 80%;
+  padding: 10px 16px;
+  border-radius: 16px;
+  font-size: 13px;
+  clear: both;
+}
+
+.participant-panel .chatarea .item .other {
+  display: block;
+  float: left;
+  text-align: left;
+  background-color: #fff3e0;
+  max-width: 80%;
+  padding: 10px 16px;
+  border-radius: 16px;
+  font-size: 13px;
+  clear: both;
+}
+
+.participant-panel .chatarea .item .bot {
+  display: block;
+  float: right;
+  text-align: left;
+  background-color: #bbdfbc;
+  max-width: 80%;
+  padding: 10px 16px;
+  border-radius: 16px;
+  font-size: 13px;
+  clear: both;
+}
+
+.participant-panel .chatarea .item .label {
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+.participant-panel .chatarea .system-msg {
+  font-size: 12px;
+  color: #666;
+  text-align: center;
+  padding: 4px 0;
+  font-style: italic;
+  clear: both;
+}
+
+.participant-panel .chatarea .endbar {
+  display: block;
+  clear: both;
+}

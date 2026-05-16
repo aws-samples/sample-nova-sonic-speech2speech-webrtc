@@ -23,6 +23,10 @@ const publicUrlOrPath = getPublicUrlOrPath(
 
 const buildPath = process.env.BUILD_PATH || 'build';
 
+// Support alternate source/public directories via environment variables
+const srcDir = process.env.REACT_APP_SRC_DIR || 'src';
+const publicDir = process.env.REACT_APP_PUBLIC_DIR || 'public';
+
 const moduleFileExtensions = [
   'web.mjs',
   'mjs',
@@ -55,11 +59,11 @@ module.exports = {
   dotenv: resolveApp('.env'),
   appPath: resolveApp('.'),
   appBuild: resolveApp(buildPath),
-  appPublic: resolveApp('public'),
-  appHtml: resolveApp('public/index.html'),
-  appIndexJs: resolveModule(resolveApp, 'src/index'),
+  appPublic: resolveApp(publicDir),
+  appHtml: resolveApp(`${publicDir}/index.html`),
+  appIndexJs: resolveModule(resolveApp, `${srcDir}/index`),
   appPackageJson: resolveApp('package.json'),
-  appSrc: resolveApp('src'),
+  appSrc: resolveApp(srcDir),
   appTsConfig: resolveApp('tsconfig.json'),
   appJsConfig: resolveApp('jsconfig.json'),
   yarnLockFile: resolveApp('yarn.lock'),
